@@ -70,8 +70,6 @@ services:
     restart: unless-stopped
 
   # ---- Frontend (React/Vite → nginx) ----
-  # For production, deploy to Vercel instead. This service
-  # is kept for local development / Docker-only deployments.
   frontend:
     build:
       context: ./frontend

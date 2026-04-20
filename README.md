@@ -1,6 +1,6 @@
-# Tic Tac Toe — Multiplayer Backend (Nakama)
+# Tic Tac Toe — Full-Stack Multiplayer Game
 
-Production-ready, server-authoritative multiplayer Tic Tac Toe backend built on **Nakama**, **PostgreSQL**, and **Docker**.
+Production-ready, server-authoritative multiplayer Tic Tac Toe built on **React/Vite**, **Nakama** (TypeScript runtime), **PostgreSQL**, and **Docker**. Deployable as a single `docker compose` stack.
 
 ---
 
@@ -8,10 +8,10 @@ Production-ready, server-authoritative multiplayer Tic Tac Toe backend built on 
 
 ```
 ┌──────────────┐      WebSocket / REST       ┌──────────────────┐
-│   Clients    │  ◄──────────────────────►    │   Nakama Server  │
-│  (Browser)   │        port 7350            │   (TypeScript)   │
-└──────────────┘                              │                  │
-                                              │  Match Handler   │
+│   Frontend   │  ◄──────────────────────►    │   Nakama Server  │
+│  React/Vite  │        port 7350            │   (TypeScript)   │
+│  port 3000   │                              │                  │
+└──────────────┘                              │  Match Handler   │
                                               │  Matchmaker      │
                                               │  RPC Functions   │
                                               │  Leaderboard     │
@@ -23,27 +23,40 @@ Production-ready, server-authoritative multiplayer Tic Tac Toe backend built on 
                                               └──────────────────┘
 ```
 
+All three services — **frontend**, **Nakama backend**, and **PostgreSQL** — are orchestrated via a single `docker-compose.yaml`.
+
 ---
 
 ## Project Structure
 
 ```
-backend/
-├── src/
-│   ├── main.ts           # Entry point — registers all handlers
-│   ├── match_handler.ts  # Server-authoritative match logic
-│   ├── matchmaker.ts     # Automatic matchmaking hook
-│   ├── rpc.ts            # REST RPC endpoints
-│   ├── leaderboard.ts    # Leaderboard initialization
-│   └── ai.ts             # AI opponent (Minimax with difficulty levels)
-├── init.sql              # Custom PostgreSQL schema
-├── local.yml             # Nakama runtime configuration
-├── rollup.config.js      # Rollup bundler config
-├── babel.config.json     # Babel transpilation config
-├── Dockerfile            # Multi-stage build (compile TS → Nakama image)
-├── package.json
-└── tsconfig.json
-docker-compose.yaml       # Orchestrates Nakama + PostgreSQL
+├── docker-compose.yaml        # Orchestrates all 3 services
+├── README.md
+│
+├── frontend/                  # React/Vite SPA
+│   ├── Dockerfile             # Multi-stage build → nginx
+│   ├── nginx.conf             # SPA routing & reverse proxy
+│   ├── src/
+│   │   ├── App.tsx
+│   │   ├── components/game/   # Game screens, board, AI, online
+│   │   ├── contexts/          # Auth context (guest/email)
+│   │   ├── hooks/             # useOnlineMatch, etc.
+│   │   ├── lib/               # gameLogic, nakamaClient, audio, stats
+│   │   └── pages/             # Index, NotFound
+│   └── ...
+│
+├── backend/                   # Nakama TypeScript runtime
+│   ├── Dockerfile             # Multi-stage build (TS → JS → Nakama image)
+│   ├── init.sql               # Custom PostgreSQL schema
+│   ├── local.yml              # Nakama runtime config
+│   ├── src/
+│   │   ├── main.ts            # Entry point — registers all handlers & RPCs
+│   │   ├── match_handler.ts   # Server-authoritative match logic
+│   │   ├── matchmaker.ts      # Automatic matchmaking hook
+│   │   ├── rpc.ts             # REST RPC endpoints
+│   │   ├── leaderboard.ts     # Leaderboard initialization
+│   │   └── ai.ts              # AI opponent (Minimax with difficulty levels)
+│   └── ...
 ```
 
 ---
@@ -53,22 +66,26 @@ docker-compose.yaml       # Orchestrates Nakama + PostgreSQL
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- (Optional) [Node.js 20+](https://nodejs.org/) for local TypeScript development
+- (Optional) [Node.js 20+](https://nodejs.org/) for local development without Docker
 
-### 1. Start the Server
+### 1. Start the Full Stack
 
 ```bash
 docker compose up --build -d
 ```
 
-This will:
-- Build the TypeScript modules
-- Start PostgreSQL with custom schema
-- Start Nakama with compiled JS modules
+This spins up **three containers**:
+
+| Service | Container | Port | Description |
+|---------|-----------|------|-------------|
+| PostgreSQL | `ttt_postgres` | 5432 | Database with custom schema |
+| Nakama | `ttt_nakama` | 7350 (API), 7351 (Console) | Game server |
+| Frontend | `ttt_frontend` | 3000 | React SPA served via nginx |
 
 ### 2. Verify
 
-- **Nakama Console**: http://localhost:7351 (admin/password)
+- **Game UI**: http://localhost:3000
+- **Nakama Console**: http://localhost:7351 (admin / password)
 - **API Endpoint**: http://localhost:7350
 - **Health Check**: http://localhost:7350/healthcheck
 
@@ -109,9 +126,10 @@ All RPC calls require a valid session token in the `Authorization: Bearer <token
 | `create_match` | POST | Create a new match room |
 | `join_match` | POST | Find/join an open match |
 | `get_leaderboard` | POST | Get global leaderboard |
-| `get_player_stats` | POST | Get player statistics |
+| `get_player_stats` | POST | Get player statistics (online + AI) |
 | `set_username` | POST | Set display name |
 | `get_match_history` | POST | Get recent match history |
+| `record_ai_game` | POST | Record an AI game result |
 
 #### Create Match
 
@@ -156,15 +174,33 @@ Response:
 ```json
 {
   "userId": "...",
-  "wins": 5,
-  "losses": 2,
-  "draws": 1,
-  "highestScore": 160,
-  "winStreak": 3,
-  "bestWinStreak": 4,
-  "fastestWinTime": 12.5,
-  "totalGames": 8,
-  "winRate": 62.5
+  "username": "ProGamer42",
+  "online": {
+    "wins": 5,
+    "losses": 2,
+    "draws": 1,
+    "highestScore": 160,
+    "winStreak": 3,
+    "bestWinStreak": 4,
+    "fastestWinTime": 12.5,
+    "totalGames": 8,
+    "winRate": 62.5
+  },
+  "ai": {
+    "wins": 12,
+    "losses": 3,
+    "draws": 2,
+    "winStreak": 4,
+    "bestWinStreak": 6,
+    "totalGames": 17,
+    "winRate": 70.6,
+    "gamesEasy": 5,
+    "winsEasy": 5,
+    "gamesMedium": 7,
+    "winsMedium": 5,
+    "gamesHard": 5,
+    "winsHard": 2
+  }
 }
 ```
 
@@ -194,6 +230,17 @@ curl -X POST "http://localhost:7350/v2/rpc/get_match_history" \
   -H "Content-Type: application/json" \
   -d '{"limit": 20}'
 ```
+
+#### Record AI Game
+
+```bash
+curl -X POST "http://localhost:7350/v2/rpc/record_ai_game" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"result": "win", "difficulty": "hard"}'
+```
+
+Accepted values: `result` = `"win"` | `"lose"` | `"draw"`, `difficulty` = `"easy"` | `"medium"` | `"hard"`
 
 ---
 
@@ -295,8 +342,18 @@ socket.onmatchdata = (result) => {
 - **Win detection**: Checks all 8 combinations (3 rows, 3 columns, 2 diagonals)
 - **Draw detection**: All 9 cells filled with no winner
 - **Disconnect**: Opponent wins by forfeit
-- **Timer mode**: 30 seconds per turn, auto-forfeit on expiry
+- **Turn timers** (difficulty-based):
+
+| Difficulty | Time per Move |
+|------------|---------------|
+| Easy       | 30 seconds    |
+| Medium     | 22 seconds    |
+| Hard       | 15 seconds    |
+
+  Auto-forfeit on expiry.
 - **Rematch**: Both players must agree; starting player swaps
+- **Guest mode**: Play without account — stats are not tracked
+- **Stats separation**: AI game stats and online game stats are stored in separate database tables
 
 ---
 
@@ -443,11 +500,11 @@ This reduces the search space by **orders of magnitude**, making the AI respond 
 
 #### Difficulty Levels
 
-| Level | Strategy | Beatable? |
-|-------|----------|-----------|
-| **Easy** | Pure random cell selection | Always |
-| **Medium** | 50% random, 50% Minimax | Sometimes |
-| **Hard** | Full Minimax + α-β pruning | Never |
+| Level | Strategy | Beatable? | Turn Timer |
+|-------|----------|-----------|------------|
+| **Easy** | Pure random cell selection | Always | 30s |
+| **Medium** | 50% random, 50% Minimax | Sometimes | 22s |
+| **Hard** | Full Minimax + α-β pruning | Never | 15s |
 
 #### Pseudocode
 
@@ -529,62 +586,6 @@ Scores feed into a **descending leaderboard** using Nakama's built-in leaderboar
 
 ---
 
-## Deployment
-
-### Frontend → Vercel
-
-The React/Vite frontend deploys to **Vercel** as a static site.
-
-1. Push your repository to GitHub
-2. Import the project in [Vercel Dashboard](https://vercel.com/dashboard)
-3. Set **Root Directory** → `frontend`
-4. Set **Build Command** → `npm run build`
-5. Set **Output Directory** → `dist`
-6. Add **Environment Variables** in Vercel project settings:
-
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `VITE_NAKAMA_HOST` | `your-nakama-server.com` | Backend server hostname |
-| `VITE_NAKAMA_PORT` | `7350` | Nakama API port |
-| `VITE_NAKAMA_KEY` | `your_production_server_key` | Server key |
-| `VITE_NAKAMA_SSL` | `true` | Enable HTTPS/WSS |
-
-A `vercel.json` is included for SPA routing. Use `frontend/.env.example` as a reference.
-
-### Backend → Docker (Any Cloud Provider)
-
-The Nakama + PostgreSQL backend requires Docker and runs on any cloud VM or container service.
-
-**Recommended providers:** AWS EC2/ECS, GCP Compute Engine/GKE, DigitalOcean Droplet, Fly.io, Railway.
-
-```bash
-# 1. SSH into your server
-# 2. Clone the repo
-git clone <your-repo-url> && cd Tic_Tac_Toe
-
-# 3. Create your production .env
-cp .env.example .env
-# Edit .env with secure values
-
-# 4. Start
-docker compose --env-file .env up --build -d
-```
-
-**Important:** Place a reverse proxy (nginx/Caddy) in front of Nakama for TLS termination so the frontend can connect via `wss://`.
-
-### Production Checklist
-
-- [ ] Change `socket.server_key` from default
-- [ ] Set strong PostgreSQL password
-- [ ] Restrict port 7351 (admin console) access
-- [ ] Enable TLS/SSL (reverse proxy: nginx/caddy)
-- [ ] Configure log aggregation
-- [ ] Set up monitoring and alerting
-- [ ] Use managed PostgreSQL (RDS/Cloud SQL)
-- [ ] Configure backup strategy for database
-
----
-
 ## Database Schema
 
 ### `users_profile`
@@ -594,20 +595,37 @@ docker compose --env-file .env up --build -d
 | username | TEXT (UNIQUE) | Display name |
 | created_at | TIMESTAMPTZ | Registration time |
 
-### `game_stats`
+### `game_stats` (Online Games)
 | Column | Type | Description |
 |--------|------|-------------|
 | user_id | UUID (PK, FK) | References users_profile |
-| wins | INT | Total wins |
-| losses | INT | Total losses |
-| draws | INT | Total draws |
+| wins | INT | Total online wins |
+| losses | INT | Total online losses |
+| draws | INT | Total online draws |
 | highest_score | INT | Best score achieved |
 | win_streak | INT | Current win streak |
 | best_win_streak | INT | All-time best streak |
 | fastest_win_time | FLOAT | Fastest win in seconds |
 | updated_at | TIMESTAMPTZ | Last update time |
 
-### `match_history`
+### `ai_game_stats` (AI Games)
+| Column | Type | Description |
+|--------|------|-------------|
+| user_id | UUID (PK, FK) | References users_profile |
+| wins | INT | Total AI wins |
+| losses | INT | Total AI losses |
+| draws | INT | Total AI draws |
+| win_streak | INT | Current win streak |
+| best_win_streak | INT | All-time best streak |
+| games_easy | INT | Games played on Easy |
+| wins_easy | INT | Wins on Easy |
+| games_medium | INT | Games played on Medium |
+| wins_medium | INT | Wins on Medium |
+| games_hard | INT | Games played on Hard |
+| wins_hard | INT | Wins on Hard |
+| updated_at | TIMESTAMPTZ | Last update time |
+
+### `match_history` (Online Games)
 | Column | Type | Description |
 |--------|------|-------------|
 | match_id | UUID (PK) | Auto-generated |
@@ -623,12 +641,144 @@ docker compose --env-file .env up --build -d
 ## Local Development (Without Docker)
 
 ```bash
+# Backend
 cd backend
 npm install
 npm run build  # Compiles TS → build/
+
+# Frontend
+cd frontend
+npm install
+npm run dev    # Vite dev server on port 5173
 ```
 
 Copy `build/*.js` into a running Nakama's `data/modules/` directory and restart.
+
+---
+
+## Deployment
+
+The entire application (frontend, backend, database) is deployed as a single **Docker Compose** stack.
+
+### Environment Variables
+
+Create a `.env` file in the project root (copy from `.env.example`):
+
+```env
+# PostgreSQL
+POSTGRES_DB=nakama
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=<strong-password>
+
+# Nakama
+NAKAMA_SERVER_KEY=<your-production-server-key>
+NAKAMA_CONSOLE_USERNAME=admin
+NAKAMA_CONSOLE_PASSWORD=<strong-console-password>
+
+# Frontend build-time variables
+VITE_NAKAMA_HOST=your-domain.com
+VITE_NAKAMA_PORT=7350
+VITE_NAKAMA_KEY=<your-production-server-key>
+VITE_NAKAMA_SSL=true
+```
+
+### Container Overview
+
+| Service | Image | Exposed Port | Role |
+|---------|-------|-------------|------|
+| `ttt_postgres` | `postgres:16-alpine` | 5432 | Database — runs `init.sql` on first start |
+| `ttt_nakama` | Custom (Dockerfile) | 7350, 7351 | Game server — HTTP/WebSocket API + admin console |
+| `ttt_frontend` | Custom (Dockerfile) | 3000 → 80 | React SPA served by nginx |
+
+### Deploy to a Cloud VM (Recommended)
+
+**Works on:** AWS EC2, GCP Compute Engine, DigitalOcean Droplet, Azure VM, Hetzner, any VPS with Docker.
+
+```bash
+# 1. SSH into your server
+ssh user@your-server
+
+# 2. Clone the repository
+git clone <your-repo-url> && cd Tic_Tac_Toe
+
+# 3. Create production environment file
+cp .env.example .env
+# Edit .env with secure values (see above)
+
+# 4. Build and start all services
+docker compose --env-file .env up --build -d
+
+# 5. Verify
+curl http://localhost:7350/healthcheck   # Nakama API
+curl http://localhost:3000               # Frontend
+```
+
+### TLS / HTTPS Setup
+
+Place a reverse proxy (nginx or Caddy) in front of the stack to terminate TLS:
+
+```
+Internet ──► nginx/Caddy (443) ──► ttt_frontend (3000)
+                                ──► ttt_nakama   (7350)  ← WebSocket upgrade
+```
+
+Example with Caddy (automatic HTTPS):
+
+```
+your-domain.com {
+    reverse_proxy localhost:3000
+}
+
+api.your-domain.com {
+    reverse_proxy localhost:7350
+}
+```
+
+Then set `VITE_NAKAMA_HOST=api.your-domain.com` and `VITE_NAKAMA_SSL=true` in `.env` and rebuild the frontend container.
+
+### Deploy to Container Services
+
+The `docker-compose.yaml` also works with container orchestration platforms:
+
+| Platform | Command |
+|----------|---------|
+| **Docker Compose** (VM) | `docker compose up --build -d` |
+| **AWS ECS** | Use `docker compose` → ECS via `docker context` |
+| **Fly.io** | `fly launch` per service or use `fly machines` |
+| **Railway** | Import repo, configure each service |
+| **Render** | Docker deploy per service |
+
+### Updating
+
+```bash
+git pull
+docker compose up --build -d
+```
+
+PostgreSQL data persists in the `pgdata` Docker volume across rebuilds.
+
+### Tearing Down
+
+```bash
+# Stop services (keep data)
+docker compose down
+
+# Stop and delete all data
+docker compose down -v
+```
+
+### Production Checklist
+
+- [ ] Change `NAKAMA_SERVER_KEY` from default
+- [ ] Set strong `POSTGRES_PASSWORD`
+- [ ] Restrict port 7351 (admin console) — firewall or VPN only
+- [ ] Enable TLS/SSL via reverse proxy (nginx / Caddy)
+- [ ] Set `VITE_NAKAMA_SSL=true` for frontend
+- [ ] Configure log aggregation (stdout → CloudWatch / Loki / etc.)
+- [ ] Set up monitoring and alerting
+- [ ] Consider managed PostgreSQL (RDS, Cloud SQL) for HA
+- [ ] Configure database backup strategy
+- [ ] Use a firewall to expose only ports 80/443
 
 ---
 
