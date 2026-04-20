@@ -173,7 +173,7 @@ jobs:
               "NAKAMA_CONSOLE_PASSWORD=${{ secrets.NAKAMA_CONSOLE_PASSWORD }}" \
               "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" \
               "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
-              "POSTGRES_HOST=${{ secrets.POSTGRES_FQDN }}" \
+              "POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}" \
               "POSTGRES_PORT=5432" \
               "POSTGRES_DB=${{ secrets.POSTGRES_DB }}" \
             --output none
