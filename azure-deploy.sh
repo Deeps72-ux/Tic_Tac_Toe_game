@@ -115,12 +115,17 @@ az containerapp create \
 echo "       Waiting for PostgreSQL to start..."
 sleep 30
 
-POSTGRES_FQDN=$(az containerapp show \
+# Verify PostgreSQL container is running
+echo "       Verifying PostgreSQL provisioning state..."
+PG_STATE=$(az containerapp show \
   --name ttt-postgres \
   --resource-group "$RESOURCE_GROUP" \
-  --query "properties.configuration.ingress.fqdn" -o tsv)
+  --query "properties.provisioningState" -o tsv)
+echo "       PostgreSQL state: $PG_STATE"
 
-echo "       PostgreSQL FQDN: $POSTGRES_FQDN"
+# Use the app name directly for internal DNS (works within the same environment)
+POSTGRES_INTERNAL_HOST="ttt-postgres"
+echo "       PostgreSQL internal host: $POSTGRES_INTERNAL_HOST"
 
 # ---------- 6. Nakama Container ----------
 echo "[7/8] Deploying Nakama backend..."
@@ -146,7 +151,7 @@ az containerapp create \
     "NAKAMA_CONSOLE_PASSWORD=$NAKAMA_CONSOLE_PASS" \
     "POSTGRES_USER=$POSTGRES_USER" \
     "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
-    "POSTGRES_HOST=$POSTGRES_FQDN" \
+    "POSTGRES_HOST=$POSTGRES_INTERNAL_HOST" \
     "POSTGRES_PORT=5432" \
     "POSTGRES_DB=$POSTGRES_DB" \
   --output none
