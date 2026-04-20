@@ -5,10 +5,7 @@
 # to Azure Container Apps on every push to main.
 #
 # Required GitHub Secrets (see README for setup instructions):
-#   AZURE_CLIENT_ID          - Service principal app/client ID
-#   AZURE_TENANT_ID          - Azure AD tenant ID
-#   AZURE_SUBSCRIPTION_ID    - Azure subscription ID
-#   AZURE_CLIENT_SECRET      - Service principal client secret
+#   AZURE_CREDENTIALS        - Service principal JSON (from az ad sp create-for-rbac)
 #   ACR_NAME                 - Azure Container Registry name
 #   ACR_USERNAME             - ACR admin username
 #   ACR_PASSWORD             - ACR admin password
@@ -95,13 +92,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Debug — Check secrets are set
+        run: |
+          echo "=== Checking if secrets are populated ==="
+          if [ -z "${{ secrets.AZURE_CLIENT_ID }}" ]; then echo "❌ AZURE_CLIENT_ID is EMPTY"; else echo "✅ AZURE_CLIENT_ID is set"; fi
+          if [ -z "${{ secrets.AZURE_TENANT_ID }}" ]; then echo "❌ AZURE_TENANT_ID is EMPTY"; else echo "✅ AZURE_TENANT_ID is set"; fi
+          if [ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then echo "❌ AZURE_SUBSCRIPTION_ID is EMPTY"; else echo "✅ AZURE_SUBSCRIPTION_ID is set"; fi
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then echo "❌ AZURE_CREDENTIALS is EMPTY"; else echo "✅ AZURE_CREDENTIALS is set"; fi
+          if [ -z "${{ secrets.ACR_NAME }}" ]; then echo "❌ ACR_NAME is EMPTY"; else echo "✅ ACR_NAME is set"; fi
+          if [ -z "${{ secrets.ACR_USERNAME }}" ]; then echo "❌ ACR_USERNAME is EMPTY"; else echo "✅ ACR_USERNAME is set"; fi
+          if [ -z "${{ secrets.ACR_PASSWORD }}" ]; then echo "❌ ACR_PASSWORD is EMPTY"; else echo "✅ ACR_PASSWORD is set"; fi
+          if [ -z "${{ secrets.AZURE_RESOURCE_GROUP }}" ]; then echo "❌ AZURE_RESOURCE_GROUP is EMPTY"; else echo "✅ AZURE_RESOURCE_GROUP is set"; fi
+          if [ -z "${{ secrets.AZURE_ENVIRONMENT }}" ]; then echo "❌ AZURE_ENVIRONMENT is EMPTY"; else echo "✅ AZURE_ENVIRONMENT is set"; fi
+          if [ -z "${{ secrets.NAKAMA_SERVER_KEY }}" ]; then echo "❌ NAKAMA_SERVER_KEY is EMPTY"; else echo "✅ NAKAMA_SERVER_KEY is set"; fi
+          if [ -z "${{ secrets.NAKAMA_FQDN }}" ]; then echo "❌ NAKAMA_FQDN is EMPTY"; else echo "✅ NAKAMA_FQDN is set"; fi
+          if [ -z "${{ secrets.POSTGRES_FQDN }}" ]; then echo "❌ POSTGRES_FQDN is EMPTY"; else echo "✅ POSTGRES_FQDN is set"; fi
+          echo "ACR_SERVER env = '${{ env.ACR_SERVER }}'"
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Login to ACR
         uses: azure/docker-login@v2
