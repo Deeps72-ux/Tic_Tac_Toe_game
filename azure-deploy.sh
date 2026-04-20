@@ -142,8 +142,7 @@ az containerapp create \
     "NAKAMA_SERVER_KEY=$NAKAMA_SERVER_KEY" \
     "NAKAMA_CONSOLE_USERNAME=$NAKAMA_CONSOLE_USER" \
     "NAKAMA_CONSOLE_PASSWORD=$NAKAMA_CONSOLE_PASS" \
-  --command "/bin/sh" "-ecx" \
-    "/nakama/nakama migrate up --database.address ${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_FQDN}:5432/${POSTGRES_DB} && exec /nakama/nakama --config /nakama/data/local.yml --database.address ${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_FQDN}:5432/${POSTGRES_DB} --socket.server_key ${NAKAMA_SERVER_KEY} --console.username ${NAKAMA_CONSOLE_USER} --console.password ${NAKAMA_CONSOLE_PASS}" \
+  --command "/bin/sh -c \"/nakama/nakama migrate up --database.address ${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_FQDN}:5432/${POSTGRES_DB} && exec /nakama/nakama --config /nakama/data/local.yml --database.address ${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_FQDN}:5432/${POSTGRES_DB} --socket.server_key ${NAKAMA_SERVER_KEY} --console.username ${NAKAMA_CONSOLE_USER} --console.password ${NAKAMA_CONSOLE_PASS}\"" \
   --output none
 
 NAKAMA_FQDN=$(az containerapp show \
