@@ -27,6 +27,14 @@ FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Configure reverse proxy to Nakama backend (production only)
+ARG NAKAMA_PROXY_HOST
+RUN if [ -n "$NAKAMA_PROXY_HOST" ]; then \
+      sed -i "s|__NAKAMA_BACKEND__|${NAKAMA_PROXY_HOST}|g" /etc/nginx/conf.d/default.conf; \
+    else \
+      sed -i '/# BEGIN_PROXY/,/# END_PROXY/d' /etc/nginx/conf.d/default.conf; \
+    fi
+
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]

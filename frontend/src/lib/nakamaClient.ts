@@ -1,10 +1,13 @@
 import { Client, Session, Socket } from "@heroiclabs/nakama-js";
 
 // Nakama connection config — uses env vars or defaults for Docker setup
-const NAKAMA_HOST = import.meta.env.VITE_NAKAMA_HOST || "localhost";
-const NAKAMA_PORT = import.meta.env.VITE_NAKAMA_PORT || "7350";
+// In production (SSL), env vars are empty → auto-detect from current page URL (same-origin proxy)
+const NAKAMA_HOST = import.meta.env.VITE_NAKAMA_HOST || window.location.hostname;
+const NAKAMA_PORT = import.meta.env.VITE_NAKAMA_PORT || (window.location.protocol === 'https:' ? '443' : '80');
 const NAKAMA_KEY = import.meta.env.VITE_NAKAMA_KEY || "tictactoe_server_key";
-const NAKAMA_SSL = import.meta.env.VITE_NAKAMA_SSL === "true";
+const NAKAMA_SSL = import.meta.env.VITE_NAKAMA_SSL
+  ? import.meta.env.VITE_NAKAMA_SSL === "true"
+  : window.location.protocol === 'https:';
 
 class NakamaClient {
   private client: Client;

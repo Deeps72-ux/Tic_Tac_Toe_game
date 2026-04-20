@@ -77,9 +77,9 @@ az acr build \
   --image ttt-frontend:latest \
   --file frontend/Dockerfile \
   --build-arg VITE_NAKAMA_HOST="" \
-  --build-arg VITE_NAKAMA_PORT="7350" \
+  --build-arg VITE_NAKAMA_PORT="" \
   --build-arg VITE_NAKAMA_KEY="$NAKAMA_SERVER_KEY" \
-  --build-arg VITE_NAKAMA_SSL="true" \
+  --build-arg VITE_NAKAMA_SSL="" \
   frontend/
 
 # ---------- 4. Container Apps Environment ----------
@@ -160,10 +160,11 @@ az acr build \
   --registry "$ACR_NAME" \
   --image ttt-frontend:latest \
   --file frontend/Dockerfile \
-  --build-arg "VITE_NAKAMA_HOST=$NAKAMA_FQDN" \
-  --build-arg "VITE_NAKAMA_PORT=443" \
+  --build-arg "VITE_NAKAMA_HOST=" \
+  --build-arg "VITE_NAKAMA_PORT=" \
   --build-arg "VITE_NAKAMA_KEY=$NAKAMA_SERVER_KEY" \
-  --build-arg "VITE_NAKAMA_SSL=true" \
+  --build-arg "VITE_NAKAMA_SSL=" \
+  --build-arg "NAKAMA_PROXY_HOST=$NAKAMA_FQDN" \
   frontend/
 
 az containerapp create \
