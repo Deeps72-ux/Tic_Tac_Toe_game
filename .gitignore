@@ -1,0 +1,21 @@
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+!.env.example
+
+# Node
+node_modules/
+
+# Build outputs
+backend/build/
+frontend/dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.sw?

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "noImplicitReturns": true,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "noUnusedLocals": false,
+    "removeComments": true,
+    "target": "es5",
+    "module": "ESNext",
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "files": [
+    "./node_modules/nakama-runtime/index.d.ts"
+  ],
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "build"
+  ]
+}

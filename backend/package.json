@@ -1,0 +1,27 @@
+{
+  "name": "tic-tac-toe-nakama-backend",
+  "version": "1.0.0",
+  "description": "Server-authoritative Tic Tac Toe backend for Nakama",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "rollup -c",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "nakama-runtime": "https://github.com/heroiclabs/nakama-common"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/plugin-external-helpers": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "@rollup/plugin-babel": "^6.0.4",
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.12.0",
+    "tslib": "^2.6.2",
+    "typescript": "^5.5.0"
+  }
+}
