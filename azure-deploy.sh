@@ -98,6 +98,7 @@ az containerapp create \
   --environment "$ENVIRONMENT" \
   --image "postgres:16-alpine" \
   --target-port 5432 \
+  --exposed-port 5432 \
   --ingress internal \
   --transport tcp \
   --min-replicas 1 \
@@ -148,9 +149,6 @@ az containerapp create \
     "POSTGRES_HOST=$POSTGRES_FQDN" \
     "POSTGRES_PORT=5432" \
     "POSTGRES_DB=$POSTGRES_DB" \
-  --command "/bin/sh" \
-  --args "-c" \
-  --args "/nakama/nakama migrate up --database.address postgres:$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_FQDN:5432/$POSTGRES_DB && exec /nakama/nakama --config /nakama/data/local.yml --database.address postgres:$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_FQDN:5432/$POSTGRES_DB --socket.server_key $NAKAMA_SERVER_KEY --console.username $NAKAMA_CONSOLE_USER --console.password $NAKAMA_CONSOLE_PASS" \
   --output none
 
 NAKAMA_FQDN=$(az containerapp show \
