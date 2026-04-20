@@ -30,7 +30,11 @@ All three services — **frontend**, **Nakama backend**, and **PostgreSQL** — 
 ## Project Structure
 
 ```
-├── docker-compose.yaml        # Orchestrates all 3 services
+├── docker-compose.yaml        # Orchestrates all 3 services (local dev)
+├── azure-deploy.sh            # One-command Azure Container Apps deploy
+├── .github/
+│   └── workflows/
+│       └── deploy.yml         # CI/CD — build, test, deploy to Azure
 ├── README.md
 │
 ├── frontend/                  # React/Vite SPA
@@ -638,147 +642,317 @@ Scores feed into a **descending leaderboard** using Nakama's built-in leaderboar
 
 ---
 
-## Local Development (Without Docker)
+## Deployment — Azure Container Apps
 
-```bash
-# Backend
-cd backend
-npm install
-npm run build  # Compiles TS → build/
+The full stack deploys to **Azure Container Apps** as 3 containers in a shared environment with automatic HTTPS, scaling, and internal networking.
 
-# Frontend
-cd frontend
-npm install
-npm run dev    # Vite dev server on port 5173
+```
+┌─────────────────────────────────────────────────────────────┐
+│                Azure Container Apps Environment             │
+│                                                             │
+│  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐  │
+│  │  Frontend    │    │   Nakama     │    │  PostgreSQL   │  │
+│  │  (nginx)     │───►│  (backend)   │───►│  (database)   │  │
+│  │  external    │    │  external    │    │  internal     │  │
+│  │  port 80     │    │  port 7350   │    │  port 5432    │  │
+│  └─────────────┘    └──────────────┘    └───────────────┘  │
+│        ▲                   ▲                                │
+└────────┼───────────────────┼────────────────────────────────┘
+         │                   │
+    https://ttt-frontend.*.azurecontainerapps.io
+    https://ttt-nakama.*.azurecontainerapps.io
 ```
 
-Copy `build/*.js` into a running Nakama's `data/modules/` directory and restart.
+### Prerequisites
 
----
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed
+- Azure subscription (logged in via `az login`)
+- Docker (only if building locally; the script uses ACR cloud builds)
 
-## Deployment
-
-The entire application (frontend, backend, database) is deployed as a single **Docker Compose** stack.
-
-### Environment Variables
-
-Create a `.env` file in the project root (copy from `.env.example`):
-
-```env
-# PostgreSQL
-POSTGRES_DB=nakama
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=<strong-password>
-
-# Nakama
-NAKAMA_SERVER_KEY=<your-production-server-key>
-NAKAMA_CONSOLE_USERNAME=admin
-NAKAMA_CONSOLE_PASSWORD=<strong-console-password>
-
-# Frontend build-time variables
-VITE_NAKAMA_HOST=your-domain.com
-VITE_NAKAMA_PORT=7350
-VITE_NAKAMA_KEY=<your-production-server-key>
-VITE_NAKAMA_SSL=true
-```
-
-### Container Overview
-
-| Service | Image | Exposed Port | Role |
-|---------|-------|-------------|------|
-| `ttt_postgres` | `postgres:16-alpine` | 5432 | Database — runs `init.sql` on first start |
-| `ttt_nakama` | Custom (Dockerfile) | 7350, 7351 | Game server — HTTP/WebSocket API + admin console |
-| `ttt_frontend` | Custom (Dockerfile) | 3000 → 80 | React SPA served by nginx |
-
-### Deploy to a Cloud VM (Recommended)
-
-**Works on:** AWS EC2, GCP Compute Engine, DigitalOcean Droplet, Azure VM, Hetzner, any VPS with Docker.
+### One-Command Deploy
 
 ```bash
-# 1. SSH into your server
-ssh user@your-server
+chmod +x azure-deploy.sh
+./azure-deploy.sh
+```
 
-# 2. Clone the repository
-git clone <your-repo-url> && cd Tic_Tac_Toe
+The script automatically:
 
-# 3. Create production environment file
+1. Creates a Resource Group
+2. Creates an Azure Container Registry (ACR)
+3. Builds & pushes backend and frontend images via ACR cloud build
+4. Creates a Container Apps Environment
+5. Deploys PostgreSQL (internal, not exposed to internet)
+6. Deploys Nakama (external, HTTPS endpoint)
+7. Rebuilds the frontend with the actual Nakama URL baked in
+8. Deploys the frontend (external, HTTPS endpoint)
+9. Prints all URLs and credentials
+
+### What Gets Created
+
+| Azure Resource | Name | Purpose |
+|---------------|------|---------|
+| Resource Group | `ttt-rg` | Logical container for all resources |
+| Container Registry | `tttacr*` | Private Docker image registry |
+| Container Apps Environment | `ttt-env` | Shared network + logging |
+| Container App | `ttt-postgres` | PostgreSQL 16 (internal only) |
+| Container App | `ttt-nakama` | Nakama game server (HTTPS, WebSocket) |
+| Container App | `ttt-frontend` | React SPA via nginx (HTTPS) |
+
+### Resource Sizing
+
+| Container | CPU | Memory | Replicas | Ingress |
+|-----------|-----|--------|----------|---------|
+| PostgreSQL | 0.5 vCPU | 1 GiB | 1 (fixed) | Internal (TCP 5432) |
+| Nakama | 1.0 vCPU | 2 GiB | 1 (fixed) | External (HTTPS) |
+| Frontend | 0.25 vCPU | 0.5 GiB | 1–3 (auto) | External (HTTPS) |
+
+### Manual Step-by-Step Deploy
+
+If you prefer to deploy manually instead of using the script:
+
+```bash
+# 1. Login
+az login
+
+# 2. Create resource group
+az group create --name ttt-rg --location eastus
+
+# 3. Create container registry
+az acr create --resource-group ttt-rg --name <unique-acr-name> --sku Basic --admin-enabled true
+
+# 4. Build images in ACR (no local Docker needed)
+az acr build --registry <acr-name> --image ttt-backend:latest --file backend/Dockerfile backend/
+az acr build --registry <acr-name> --image ttt-frontend:latest --file frontend/Dockerfile \
+  --build-arg VITE_NAKAMA_HOST=<nakama-fqdn> \
+  --build-arg VITE_NAKAMA_PORT=443 \
+  --build-arg VITE_NAKAMA_KEY=<server-key> \
+  --build-arg VITE_NAKAMA_SSL=true \
+  frontend/
+
+# 5. Create container apps environment
+az containerapp env create --name ttt-env --resource-group ttt-rg --location eastus
+
+# 6. Deploy PostgreSQL (internal)
+az containerapp create --name ttt-postgres \
+  --resource-group ttt-rg --environment ttt-env \
+  --image postgres:16-alpine \
+  --target-port 5432 --ingress internal --transport tcp \
+  --min-replicas 1 --max-replicas 1 \
+  --cpu 0.5 --memory 1.0Gi \
+  --env-vars POSTGRES_DB=nakama POSTGRES_USER=postgres POSTGRES_PASSWORD=<password>
+
+# 7. Deploy Nakama (external)
+az containerapp create --name ttt-nakama \
+  --resource-group ttt-rg --environment ttt-env \
+  --image <acr-name>.azurecr.io/ttt-backend:latest \
+  --registry-server <acr-name>.azurecr.io \
+  --registry-username <acr-name> --registry-password <acr-password> \
+  --target-port 7350 --ingress external --transport http \
+  --min-replicas 1 --max-replicas 1 \
+  --cpu 1.0 --memory 2.0Gi \
+  --env-vars NAKAMA_SERVER_KEY=<key> NAKAMA_CONSOLE_USERNAME=admin NAKAMA_CONSOLE_PASSWORD=<pass>
+
+# 8. Deploy Frontend (external)
+az containerapp create --name ttt-frontend \
+  --resource-group ttt-rg --environment ttt-env \
+  --image <acr-name>.azurecr.io/ttt-frontend:latest \
+  --registry-server <acr-name>.azurecr.io \
+  --registry-username <acr-name> --registry-password <acr-password> \
+  --target-port 80 --ingress external --transport http \
+  --min-replicas 1 --max-replicas 3 \
+  --cpu 0.25 --memory 0.5Gi
+```
+
+### Local Development (Docker Compose)
+
+For local development, the same stack runs via Docker Compose:
+
+```bash
 cp .env.example .env
-# Edit .env with secure values (see above)
+# Edit .env with local values (defaults work out of the box)
 
-# 4. Build and start all services
-docker compose --env-file .env up --build -d
-
-# 5. Verify
-curl http://localhost:7350/healthcheck   # Nakama API
-curl http://localhost:3000               # Frontend
-```
-
-### TLS / HTTPS Setup
-
-Place a reverse proxy (nginx or Caddy) in front of the stack to terminate TLS:
-
-```
-Internet ──► nginx/Caddy (443) ──► ttt_frontend (3000)
-                                ──► ttt_nakama   (7350)  ← WebSocket upgrade
-```
-
-Example with Caddy (automatic HTTPS):
-
-```
-your-domain.com {
-    reverse_proxy localhost:3000
-}
-
-api.your-domain.com {
-    reverse_proxy localhost:7350
-}
-```
-
-Then set `VITE_NAKAMA_HOST=api.your-domain.com` and `VITE_NAKAMA_SSL=true` in `.env` and rebuild the frontend container.
-
-### Deploy to Container Services
-
-The `docker-compose.yaml` also works with container orchestration platforms:
-
-| Platform | Command |
-|----------|---------|
-| **Docker Compose** (VM) | `docker compose up --build -d` |
-| **AWS ECS** | Use `docker compose` → ECS via `docker context` |
-| **Fly.io** | `fly launch` per service or use `fly machines` |
-| **Railway** | Import repo, configure each service |
-| **Render** | Docker deploy per service |
-
-### Updating
-
-```bash
-git pull
 docker compose up --build -d
 ```
 
-PostgreSQL data persists in the `pgdata` Docker volume across rebuilds.
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Nakama API | http://localhost:7350 |
+| Nakama Console | http://localhost:7351 (admin / password) |
+
+### Updating a Deployed App
+
+```bash
+# Rebuild and push updated image
+az acr build --registry <acr-name> --image ttt-backend:latest --file backend/Dockerfile backend/
+
+# Restart the container to pull the new image
+az containerapp revision restart --name ttt-nakama --resource-group ttt-rg
+```
 
 ### Tearing Down
 
 ```bash
-# Stop services (keep data)
-docker compose down
-
-# Stop and delete all data
-docker compose down -v
+# Delete everything (resource group, containers, ACR, all data)
+az group delete --name ttt-rg --yes --no-wait
 ```
+
+### Cost Estimate
+
+Azure Container Apps uses **consumption-based pricing** (pay per vCPU-second and GiB-second):
+
+| Component | Approximate Monthly Cost |
+|-----------|-------------------------|
+| PostgreSQL container (always-on, 0.5 vCPU) | ~$15 |
+| Nakama container (always-on, 1.0 vCPU) | ~$30 |
+| Frontend container (0.25 vCPU, scales to 0) | ~$2–5 |
+| Container Registry (Basic) | ~$5 |
+| **Total** | **~$50–55/month** |
+
+*Costs vary by region and usage. Set `--min-replicas 0` on the frontend to scale to zero when idle.*
 
 ### Production Checklist
 
-- [ ] Change `NAKAMA_SERVER_KEY` from default
-- [ ] Set strong `POSTGRES_PASSWORD`
-- [ ] Restrict port 7351 (admin console) — firewall or VPN only
-- [ ] Enable TLS/SSL via reverse proxy (nginx / Caddy)
-- [ ] Set `VITE_NAKAMA_SSL=true` for frontend
-- [ ] Configure log aggregation (stdout → CloudWatch / Loki / etc.)
-- [ ] Set up monitoring and alerting
-- [ ] Consider managed PostgreSQL (RDS, Cloud SQL) for HA
-- [ ] Configure database backup strategy
-- [ ] Use a firewall to expose only ports 80/443
+- [ ] Generate strong random values for `NAKAMA_SERVER_KEY` and `POSTGRES_PASSWORD`
+- [ ] PostgreSQL ingress is set to **internal** (not reachable from internet)
+- [ ] Nakama console password is strong and not the default
+- [ ] Frontend is rebuilt with correct `VITE_NAKAMA_HOST` pointing to the Nakama FQDN
+- [ ] `VITE_NAKAMA_SSL=true` is set for the frontend build
+- [ ] Consider [Azure Database for PostgreSQL Flexible Server](https://learn.microsoft.com/en-us/azure/postgresql/) for HA/backups
+- [ ] Configure Azure Monitor alerts for container health
+- [ ] Enable diagnostic logs on the Container Apps environment
+- [ ] Set up scheduled backups for the PostgreSQL container volume
+- [ ] Configure GitHub Actions secrets for CI/CD (see below)
+
+---
+
+## CI/CD — GitHub Actions
+
+Automated build, test, and deploy pipeline via `.github/workflows/deploy.yml`.
+
+- **Pull requests** → build + test only (no deploy)
+- **Push to `main`** → build + test → deploy all containers to Azure
+
+### How It Works
+
+```
+git push main
+    │
+    ▼
+┌─────────────────────┐
+│  build-and-test     │  npm ci → build → lint → test
+│  (all PRs + pushes) │  Backend + Frontend
+└─────────┬───────────┘
+          │ ✅ pass
+          ▼
+┌─────────────────────┐
+│  deploy             │  (main branch only)
+│  Azure Container    │
+│  Apps               │
+│                     │  1. az login (service principal)
+│                     │  2. Build images in ACR (tagged by commit SHA)
+│                     │  3. Deploy ttt-nakama
+│                     │  4. Deploy ttt-frontend
+│                     │  5. Print URLs to job summary
+└─────────────────────┘
+```
+
+### Step 1: Create an Azure Service Principal
+
+Run this once from your terminal (requires `az login`):
+
+```bash
+az ad sp create-for-rbac \
+  --name "github-ttt-deploy" \
+  --role contributor \
+  --scopes /subscriptions/<YOUR_SUBSCRIPTION_ID>/resourceGroups/ttt-rg \
+  --sdk-auth
+```
+
+This outputs a JSON block — copy the **entire JSON output**. You'll paste it as a GitHub secret.
+
+> **Tip:** Get your subscription ID with `az account show --query id -o tsv`
+
+### Step 2: Get ACR Credentials
+
+```bash
+# ACR admin username (same as the ACR name)
+az acr credential show --name <your-acr-name> --query username -o tsv
+
+# ACR admin password
+az acr credential show --name <your-acr-name> --query "passwords[0].value" -o tsv
+```
+
+### Step 3: Get Container App FQDNs
+
+After the initial deploy (via `azure-deploy.sh`), grab the FQDNs:
+
+```bash
+# Nakama FQDN
+az containerapp show --name ttt-nakama --resource-group ttt-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv
+
+# PostgreSQL internal FQDN
+az containerapp show --name ttt-postgres --resource-group ttt-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv
+```
+
+### Step 4: Add GitHub Secrets
+
+Go to your GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
+
+Add each secret:
+
+| Secret Name | Value | How to Get It |
+|-------------|-------|---------------|
+| `AZURE_CREDENTIALS` | Full JSON from Step 1 | `az ad sp create-for-rbac --sdk-auth` |
+| `ACR_NAME` | Your ACR name (e.g. `tttacr1a2b3c4d`) | From `azure-deploy.sh` output |
+| `ACR_USERNAME` | ACR admin username | `az acr credential show` |
+| `ACR_PASSWORD` | ACR admin password | `az acr credential show` |
+| `AZURE_RESOURCE_GROUP` | `ttt-rg` | Your resource group name |
+| `AZURE_ENVIRONMENT` | `ttt-env` | Your Container Apps environment |
+| `NAKAMA_SERVER_KEY` | Random server key | From `azure-deploy.sh` output |
+| `NAKAMA_CONSOLE_USERNAME` | `admin` | Console login |
+| `NAKAMA_CONSOLE_PASSWORD` | Strong password | From `azure-deploy.sh` output |
+| `POSTGRES_USER` | `postgres` | DB username |
+| `POSTGRES_PASSWORD` | Strong password | From `azure-deploy.sh` output |
+| `POSTGRES_DB` | `nakama` | DB name |
+| `NAKAMA_FQDN` | `ttt-nakama.*.azurecontainerapps.io` | Step 3 |
+| `POSTGRES_FQDN` | `ttt-postgres.internal.*.azurecontainerapps.io` | Step 3 |
+
+### Quick Setup Script
+
+Run this after the initial `azure-deploy.sh` to set all GitHub secrets at once (requires [GitHub CLI](https://cli.github.com/)):
+
+```bash
+# Save values from your azure-deploy.sh output
+REPO="your-username/your-repo"
+
+gh secret set AZURE_CREDENTIALS   --repo "$REPO" < azure-sp-credentials.json
+gh secret set ACR_NAME            --repo "$REPO" --body "<acr-name>"
+gh secret set ACR_USERNAME        --repo "$REPO" --body "<acr-name>"
+gh secret set ACR_PASSWORD        --repo "$REPO" --body "<acr-password>"
+gh secret set AZURE_RESOURCE_GROUP --repo "$REPO" --body "ttt-rg"
+gh secret set AZURE_ENVIRONMENT   --repo "$REPO" --body "ttt-env"
+gh secret set NAKAMA_SERVER_KEY   --repo "$REPO" --body "<server-key>"
+gh secret set NAKAMA_CONSOLE_USERNAME --repo "$REPO" --body "admin"
+gh secret set NAKAMA_CONSOLE_PASSWORD --repo "$REPO" --body "<console-pass>"
+gh secret set POSTGRES_USER       --repo "$REPO" --body "postgres"
+gh secret set POSTGRES_PASSWORD   --repo "$REPO" --body "<db-password>"
+gh secret set POSTGRES_DB         --repo "$REPO" --body "nakama"
+gh secret set NAKAMA_FQDN         --repo "$REPO" --body "<nakama-fqdn>"
+gh secret set POSTGRES_FQDN       --repo "$REPO" --body "<postgres-fqdn>"
+```
+
+### Verify
+
+Push a commit to `main` and check the **Actions** tab in your GitHub repo. The workflow will:
+
+1. Build and test both backend and frontend
+2. Build Docker images in ACR (tagged with the commit SHA + `latest`)
+3. Deploy updated containers to Azure Container Apps
+4. Print the live URLs in the job summary
 
 ---
 

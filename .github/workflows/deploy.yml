@@ -1,0 +1,178 @@
+# =============================================================
+# GitHub Actions — CI/CD for Azure Container Apps
+# =============================================================
+# Builds, tests, and deploys all 3 services (PostgreSQL, Nakama, Frontend)
+# to Azure Container Apps on every push to main.
+#
+# Required GitHub Secrets (see README for setup instructions):
+#   AZURE_CREDENTIALS        - Service principal JSON
+#   ACR_NAME                 - Azure Container Registry name
+#   ACR_USERNAME             - ACR admin username
+#   ACR_PASSWORD             - ACR admin password
+#   AZURE_RESOURCE_GROUP     - Resource group name (e.g. ttt-rg)
+#   AZURE_ENVIRONMENT        - Container Apps environment name (e.g. ttt-env)
+#   NAKAMA_SERVER_KEY        - Nakama socket server key
+#   NAKAMA_CONSOLE_USERNAME  - Nakama console username
+#   NAKAMA_CONSOLE_PASSWORD  - Nakama console password
+#   POSTGRES_USER            - PostgreSQL username
+#   POSTGRES_PASSWORD        - PostgreSQL password
+#   POSTGRES_DB              - PostgreSQL database name
+#   NAKAMA_FQDN              - Nakama Container App FQDN (e.g. ttt-nakama.*.azurecontainerapps.io)
+#   POSTGRES_FQDN            - PostgreSQL Container App internal FQDN
+# =============================================================
+
+name: CI/CD — Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  ACR_SERVER: ${{ secrets.ACR_NAME }}.azurecr.io
+
+jobs:
+  # ============================================================
+  # Job 1: Build & Test
+  # ============================================================
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      # ---- Backend ----
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      # ---- Frontend ----
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint --if-present
+
+      - name: Test frontend
+        working-directory: frontend
+        run: npm run test --if-present -- --run
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  # ============================================================
+  # Job 2: Deploy to Azure (only on push to main)
+  # ============================================================
+  deploy:
+    name: Deploy to Azure
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # ---- Build & Push Backend Image ----
+      - name: Build and push backend image
+        run: |
+          az acr build \
+            --registry ${{ secrets.ACR_NAME }} \
+            --image ttt-backend:${{ github.sha }} \
+            --image ttt-backend:latest \
+            --file backend/Dockerfile \
+            backend/
+
+      # ---- Build & Push Frontend Image ----
+      - name: Build and push frontend image
+        run: |
+          az acr build \
+            --registry ${{ secrets.ACR_NAME }} \
+            --image ttt-frontend:${{ github.sha }} \
+            --image ttt-frontend:latest \
+            --file frontend/Dockerfile \
+            --build-arg "VITE_NAKAMA_HOST=${{ secrets.NAKAMA_FQDN }}" \
+            --build-arg "VITE_NAKAMA_PORT=443" \
+            --build-arg "VITE_NAKAMA_KEY=${{ secrets.NAKAMA_SERVER_KEY }}" \
+            --build-arg "VITE_NAKAMA_SSL=true" \
+            frontend/
+
+      # ---- Deploy Backend ----
+      - name: Deploy Nakama backend
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          containerAppName: ttt-nakama
+          containerAppEnvironment: ${{ secrets.AZURE_ENVIRONMENT }}
+          imageToDeploy: ${{ env.ACR_SERVER }}/ttt-backend:${{ github.sha }}
+          registryUrl: ${{ env.ACR_SERVER }}
+          registryUsername: ${{ secrets.ACR_USERNAME }}
+          registryPassword: ${{ secrets.ACR_PASSWORD }}
+          targetPort: 7350
+          ingress: external
+          environmentVariables: >-
+            NAKAMA_SERVER_KEY=${{ secrets.NAKAMA_SERVER_KEY }}
+            NAKAMA_CONSOLE_USERNAME=${{ secrets.NAKAMA_CONSOLE_USERNAME }}
+            NAKAMA_CONSOLE_PASSWORD=${{ secrets.NAKAMA_CONSOLE_PASSWORD }}
+
+      # ---- Deploy Frontend ----
+      - name: Deploy frontend
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          containerAppName: ttt-frontend
+          containerAppEnvironment: ${{ secrets.AZURE_ENVIRONMENT }}
+          imageToDeploy: ${{ env.ACR_SERVER }}/ttt-frontend:${{ github.sha }}
+          registryUrl: ${{ env.ACR_SERVER }}
+          registryUsername: ${{ secrets.ACR_USERNAME }}
+          registryPassword: ${{ secrets.ACR_PASSWORD }}
+          targetPort: 80
+          ingress: external
+
+      # ---- Print URLs ----
+      - name: Get deployment URLs
+        run: |
+          echo "## Deployment URLs" >> $GITHUB_STEP_SUMMARY
+          FRONTEND_URL=$(az containerapp show --name ttt-frontend \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          NAKAMA_URL=$(az containerapp show --name ttt-nakama \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "- **Frontend**: https://$FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Nakama API**: https://$NAKAMA_URL" >> $GITHUB_STEP_SUMMARY
+
+      - name: Azure logout
+        if: always()
+        run: az logout
