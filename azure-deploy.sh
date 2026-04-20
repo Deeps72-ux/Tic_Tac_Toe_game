@@ -123,6 +123,7 @@ echo "       PostgreSQL FQDN: $POSTGRES_FQDN"
 
 # ---------- 6. Nakama Container ----------
 echo "[7/8] Deploying Nakama backend..."
+
 az containerapp create \
   --name ttt-nakama \
   --resource-group "$RESOURCE_GROUP" \
@@ -147,6 +148,9 @@ az containerapp create \
     "POSTGRES_HOST=$POSTGRES_FQDN" \
     "POSTGRES_PORT=5432" \
     "POSTGRES_DB=$POSTGRES_DB" \
+  --command "/bin/sh" \
+  --args "-c" \
+  --args "/nakama/nakama migrate up --database.address postgres:$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_FQDN:5432/$POSTGRES_DB && exec /nakama/nakama --config /nakama/data/local.yml --database.address postgres:$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_FQDN:5432/$POSTGRES_DB --socket.server_key $NAKAMA_SERVER_KEY --console.username $NAKAMA_CONSOLE_USER --console.password $NAKAMA_CONSOLE_PASS" \
   --output none
 
 NAKAMA_FQDN=$(az containerapp show \
