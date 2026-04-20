@@ -40,18 +40,11 @@ services:
       - NAKAMA_SERVER_KEY=${NAKAMA_SERVER_KEY:-tictactoe_server_key}
       - NAKAMA_CONSOLE_USERNAME=${NAKAMA_CONSOLE_USERNAME:-admin}
       - NAKAMA_CONSOLE_PASSWORD=${NAKAMA_CONSOLE_PASSWORD:-password}
-    entrypoint:
-      - "/bin/sh"
-      - "-ecx"
-      - >
-        /nakama/nakama migrate up
-        --database.address ${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-localdb}@postgres:5432/${POSTGRES_DB:-nakama} &&
-        exec /nakama/nakama
-        --config /nakama/data/local.yml
-        --database.address ${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-localdb}@postgres:5432/${POSTGRES_DB:-nakama}
-        --socket.server_key ${NAKAMA_SERVER_KEY:-tictactoe_server_key}
-        --console.username ${NAKAMA_CONSOLE_USERNAME:-admin}
-        --console.password ${NAKAMA_CONSOLE_PASSWORD:-password}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-localdb}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-nakama}
     expose:
       - "7349"
       - "7350"
