@@ -139,10 +139,11 @@ jobs:
             --image ttt-frontend:${{ github.sha }} \
             --image ttt-frontend:latest \
             --file frontend/Dockerfile \
-            --build-arg "VITE_NAKAMA_HOST=${{ secrets.NAKAMA_FQDN }}" \
-            --build-arg "VITE_NAKAMA_PORT=443" \
+            --build-arg "VITE_NAKAMA_HOST=" \
+            --build-arg "VITE_NAKAMA_PORT=" \
             --build-arg "VITE_NAKAMA_KEY=${{ secrets.NAKAMA_SERVER_KEY }}" \
-            --build-arg "VITE_NAKAMA_SSL=true" \
+            --build-arg "VITE_NAKAMA_SSL=" \
+            --build-arg "NAKAMA_PROXY_HOST=${{ secrets.NAKAMA_FQDN }}" \
             frontend/
 
       # ---- Deploy Backend ----
