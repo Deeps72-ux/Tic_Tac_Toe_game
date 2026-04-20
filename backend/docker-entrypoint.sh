@@ -49,32 +49,51 @@ echo ""
 
 # Wait for PostgreSQL to be reachable
 echo "[step 0/2] Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
+echo "[step 0/2] Checking available tools..."
+which nc 2>&1 || echo "  nc: not available"
+which wget 2>&1 || echo "  wget: not available"
+which nslookup 2>&1 || echo "  nslookup: not available"
+echo ""
+
+echo "[step 0/2] DNS resolution test:"
+nslookup "$DB_HOST" 2>&1 || echo "  DNS lookup failed or nslookup not available"
+echo ""
+
 MAX_RETRIES=30
 RETRY=0
+MIGRATION_DONE=0
 while [ $RETRY -lt $MAX_RETRIES ]; do
-  # Try multiple methods to check connectivity
-  if nc -z -w 2 "$DB_HOST" "$DB_PORT" 2>/dev/null; then
-    echo "[step 0/2] PostgreSQL is reachable (nc)!"
+  RETRY=$((RETRY + 1))
+  echo "[step 0/2] Attempt ${RETRY}/${MAX_RETRIES} — trying to reach PostgreSQL..."
+
+  # Method 1: try nc
+  if nc -z -w 3 "$DB_HOST" "$DB_PORT" 2>&1; then
+    echo "[step 0/2] PostgreSQL is reachable via nc!"
     break
-  elif wget -q --spider --timeout=2 "http://${DB_HOST}:${DB_PORT}" 2>/dev/null; then
-    echo "[step 0/2] PostgreSQL is reachable (wget)!"
-    break
-  elif /nakama/nakama migrate up --database.address "$DB_ADDR" 2>/dev/null; then
-    echo "[step 0/2] PostgreSQL is reachable (migration test succeeded)!"
+  else
+    echo "  nc failed (exit $?)"
+  fi
+
+  # Method 2: try direct migration (this is the most reliable test)
+  echo "  Trying direct migration connection..."
+  if /nakama/nakama migrate up --database.address "$DB_ADDR" 2>&1; then
+    echo "[step 0/2] Migration succeeded — PostgreSQL is definitely reachable!"
     MIGRATION_DONE=1
     break
+  else
+    echo "  Migration attempt failed (exit $?)"
   fi
-  RETRY=$((RETRY + 1))
-  echo "[step 0/2] Attempt ${RETRY}/${MAX_RETRIES} — PostgreSQL not reachable, retrying in 5s..."
+
+  echo "  Sleeping 5s before next attempt..."
   sleep 5
 done
 
-if [ $RETRY -eq $MAX_RETRIES ]; then
+if [ $RETRY -eq $MAX_RETRIES ] && [ "$MIGRATION_DONE" = "0" ]; then
   echo "[ERROR] Could not connect to PostgreSQL at ${DB_HOST}:${DB_PORT} after ${MAX_RETRIES} attempts"
-  echo "[DEBUG] Trying DNS lookup..."
-  nslookup "$DB_HOST" 2>&1 || echo "[DEBUG] nslookup not available"
-  echo "[DEBUG] Trying wget connectivity test..."
-  wget -q -O - --timeout=5 "http://${DB_HOST}:${DB_PORT}" 2>&1 || true
+  echo "[DEBUG] Final DNS lookup:"
+  nslookup "$DB_HOST" 2>&1 || true
+  echo "[DEBUG] Environment variables:"
+  env | grep -i postgres 2>&1 || true
   exit 1
 fi
 echo ""
