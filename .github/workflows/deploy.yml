@@ -125,27 +125,29 @@ jobs:
       # ---- Build & Push Backend Image ----
       - name: Build and push backend image
         run: |
-          az acr build \
-            --registry ${{ secrets.ACR_NAME }} \
-            --image ttt-backend:${{ github.sha }} \
-            --image ttt-backend:latest \
-            --file backend/Dockerfile \
+          docker build \
+            -t ${{ env.ACR_SERVER }}/ttt-backend:${{ github.sha }} \
+            -t ${{ env.ACR_SERVER }}/ttt-backend:latest \
+            -f backend/Dockerfile \
             backend/
+          docker push ${{ env.ACR_SERVER }}/ttt-backend:${{ github.sha }}
+          docker push ${{ env.ACR_SERVER }}/ttt-backend:latest
 
       # ---- Build & Push Frontend Image ----
       - name: Build and push frontend image
         run: |
-          az acr build \
-            --registry ${{ secrets.ACR_NAME }} \
-            --image ttt-frontend:${{ github.sha }} \
-            --image ttt-frontend:latest \
-            --file frontend/Dockerfile \
+          docker build \
+            -t ${{ env.ACR_SERVER }}/ttt-frontend:${{ github.sha }} \
+            -t ${{ env.ACR_SERVER }}/ttt-frontend:latest \
+            -f frontend/Dockerfile \
             --build-arg "VITE_NAKAMA_HOST=" \
             --build-arg "VITE_NAKAMA_PORT=" \
             --build-arg "VITE_NAKAMA_KEY=${{ secrets.NAKAMA_SERVER_KEY }}" \
             --build-arg "VITE_NAKAMA_SSL=" \
             --build-arg "NAKAMA_PROXY_HOST=${{ secrets.NAKAMA_FQDN }}" \
             frontend/
+          docker push ${{ env.ACR_SERVER }}/ttt-frontend:${{ github.sha }}
+          docker push ${{ env.ACR_SERVER }}/ttt-frontend:latest
 
       # ---- Deploy Backend ----
       - name: Deploy Nakama backend
