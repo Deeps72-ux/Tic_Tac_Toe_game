@@ -10,3 +10,5 @@ socket:
   server_key: "tictactoe_server_key"
   max_message_size_bytes: 4096
   max_request_size_bytes: 131072
+  cors_allow_origins:
+    - "*"
