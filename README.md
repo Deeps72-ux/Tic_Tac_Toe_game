@@ -2,6 +2,16 @@
 
 Production-ready, server-authoritative multiplayer Tic Tac Toe built on **React/Vite**, **Nakama** (TypeScript runtime), **PostgreSQL**, and **Docker**. Deployable as a single `docker compose` stack.
 
+**GitHub Repository:** https://github.com/Deeps72-ux/Tic_Tac_Toe_game.git
+
+### Live Deployment (Azure Container Apps)
+
+| Service | URL |
+|---------|-----|
+| Frontend | https://ttt-frontend.jollyisland-5af5d305.eastus.azurecontainerapps.io |
+| Nakama API | https://ttt-nakama.jollyisland-5af5d305.eastus.azurecontainerapps.io |
+| Nakama Console | https://ttt-nakama.jollyisland-5af5d305.eastus.azurecontainerapps.io/console |
+
 ---
 
 ## Architecture
@@ -659,8 +669,8 @@ The full stack deploys to **Azure Container Apps** as 3 containers in a shared e
 │        ▲                   ▲                                │
 └────────┼───────────────────┼────────────────────────────────┘
          │                   │
-    https://ttt-frontend.*.azurecontainerapps.io
-    https://ttt-nakama.*.azurecontainerapps.io
+    https://ttt-frontend.jollyisland-5af5d305.eastus.azurecontainerapps.io
+    https://ttt-nakama.jollyisland-5af5d305.eastus.azurecontainerapps.io
 ```
 
 ### Prerequisites
@@ -918,8 +928,8 @@ Add each secret:
 | `POSTGRES_USER` | `postgres` | DB username |
 | `POSTGRES_PASSWORD` | Strong password | From `azure-deploy.sh` output |
 | `POSTGRES_DB` | `nakama` | DB name |
-| `NAKAMA_FQDN` | `ttt-nakama.*.azurecontainerapps.io` | Step 3 |
-| `POSTGRES_FQDN` | `ttt-postgres.internal.*.azurecontainerapps.io` | Step 3 |
+| `NAKAMA_FQDN` | `ttt-nakama.jollyisland-5af5d305.eastus.azurecontainerapps.io` | Step 3 |
+| `POSTGRES_FQDN` | `ttt-postgres.internal.jollyisland-5af5d305.eastus.azurecontainerapps.io` | Step 3 |
 
 ### Quick Setup Script
 
@@ -941,8 +951,8 @@ gh secret set NAKAMA_CONSOLE_PASSWORD --repo "$REPO" --body "<console-pass>"
 gh secret set POSTGRES_USER       --repo "$REPO" --body "postgres"
 gh secret set POSTGRES_PASSWORD   --repo "$REPO" --body "<db-password>"
 gh secret set POSTGRES_DB         --repo "$REPO" --body "nakama"
-gh secret set NAKAMA_FQDN         --repo "$REPO" --body "<nakama-fqdn>"
-gh secret set POSTGRES_FQDN       --repo "$REPO" --body "<postgres-fqdn>"
+gh secret set NAKAMA_FQDN         --repo "$REPO" --body "ttt-nakama.jollyisland-5af5d305.eastus.azurecontainerapps.io"
+gh secret set POSTGRES_FQDN       --repo "$REPO" --body "ttt-postgres.internal.jollyisland-5af5d305.eastus.azurecontainerapps.io"
 ```
 
 ### Verify
@@ -959,3 +969,7 @@ Push a commit to `main` and check the **Actions** tab in your GitHub repo. The w
 ## License
 
 MIT
+
+---
+
+**GitHub:** https://github.com/Deeps72-ux/Tic_Tac_Toe_game.git
