@@ -149,40 +149,41 @@ jobs:
 
       # ---- Deploy Backend ----
       - name: Deploy Nakama backend
-        uses: azure/container-apps-deploy-action@v1
-        with:
-          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          containerAppName: ttt-nakama
-          containerAppEnvironment: ${{ secrets.AZURE_ENVIRONMENT }}
-          imageToDeploy: ${{ env.ACR_SERVER }}/ttt-backend:${{ github.sha }}
-          registryUrl: ${{ env.ACR_SERVER }}
-          registryUsername: ${{ secrets.ACR_USERNAME }}
-          registryPassword: ${{ secrets.ACR_PASSWORD }}
-          targetPort: 7350
-          ingress: external
-          environmentVariables: >-
-            NAKAMA_SERVER_KEY=${{ secrets.NAKAMA_SERVER_KEY }}
-            NAKAMA_CONSOLE_USERNAME=${{ secrets.NAKAMA_CONSOLE_USERNAME }}
-            NAKAMA_CONSOLE_PASSWORD=${{ secrets.NAKAMA_CONSOLE_PASSWORD }}
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_HOST=${{ secrets.POSTGRES_FQDN }}
-            POSTGRES_PORT=5432
-            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+        run: |
+          # Wait for any in-progress provisioning to finish
+          for i in $(seq 1 12); do
+            STATE=$(az containerapp show --name ttt-nakama \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --query "properties.provisioningState" -o tsv 2>/dev/null || echo "NotFound")
+            echo "Provisioning state: $STATE"
+            if [ "$STATE" = "Succeeded" ] || [ "$STATE" = "Failed" ] || [ "$STATE" = "NotFound" ]; then break; fi
+            echo "Waiting 15s for provisioning to complete..."
+            sleep 15
+          done
+
+          az containerapp update \
+            --name ttt-nakama \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --image ${{ env.ACR_SERVER }}/ttt-backend:${{ github.sha }} \
+            --set-env-vars \
+              "NAKAMA_SERVER_KEY=${{ secrets.NAKAMA_SERVER_KEY }}" \
+              "NAKAMA_CONSOLE_USERNAME=${{ secrets.NAKAMA_CONSOLE_USERNAME }}" \
+              "NAKAMA_CONSOLE_PASSWORD=${{ secrets.NAKAMA_CONSOLE_PASSWORD }}" \
+              "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" \
+              "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
+              "POSTGRES_HOST=${{ secrets.POSTGRES_FQDN }}" \
+              "POSTGRES_PORT=5432" \
+              "POSTGRES_DB=${{ secrets.POSTGRES_DB }}" \
+            --output none
 
       # ---- Deploy Frontend ----
       - name: Deploy frontend
-        uses: azure/container-apps-deploy-action@v1
-        with:
-          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          containerAppName: ttt-frontend
-          containerAppEnvironment: ${{ secrets.AZURE_ENVIRONMENT }}
-          imageToDeploy: ${{ env.ACR_SERVER }}/ttt-frontend:${{ github.sha }}
-          registryUrl: ${{ env.ACR_SERVER }}
-          registryUsername: ${{ secrets.ACR_USERNAME }}
-          registryPassword: ${{ secrets.ACR_PASSWORD }}
-          targetPort: 80
-          ingress: external
+        run: |
+          az containerapp update \
+            --name ttt-frontend \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --image ${{ env.ACR_SERVER }}/ttt-frontend:${{ github.sha }} \
+            --output none
 
       # ---- Print URLs ----
       - name: Get deployment URLs
