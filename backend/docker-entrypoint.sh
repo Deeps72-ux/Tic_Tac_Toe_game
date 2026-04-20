@@ -80,13 +80,26 @@ if [ "$MIGRATION_DONE" != "1" ]; then
 fi
 echo ""
 
-echo "[step 1/2] Migrations complete."
+echo "[step 1/3] Migrations complete."
+echo ""
+
+# Apply custom schema (init.sql) — idempotent (IF NOT EXISTS)
+echo "[step 2/3] Applying custom schema (init.sql)..."
+if [ -f /nakama/data/init.sql ]; then
+  PGPASSWORD="${DB_PASS}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -f /nakama/data/init.sql 2>&1 && {
+    echo "[step 2/3] Custom schema applied successfully."
+  } || {
+    echo "[WARN] init.sql returned an error (may be non-fatal if tables already exist)"
+  }
+else
+  echo "[step 2/3] No init.sql found, skipping."
+fi
 echo ""
 
 # Build address without connect_timeout for the running server
 DB_ADDR_RUN="${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
 
-echo "[step 2/2] Starting Nakama server..."
+echo "[step 3/3] Starting Nakama server..."
 exec /nakama/nakama \
   --config /nakama/data/local.yml \
   --database.address "$DB_ADDR_RUN" \
