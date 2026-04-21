@@ -10,6 +10,8 @@ const OpCode = {
   TIMER_UPDATE: 4,
   REMATCH_REQUEST: 5,
   REMATCH_ACCEPT: 6,
+  SYMBOL_SELECT: 7,
+  SYMBOL_STATE: 8,
 } as const;
 
 // Win conditions: rows, columns, diagonals
@@ -79,6 +81,9 @@ interface GameState {
   turnStartTick: number;    // tick when current turn started
   tickCount: number;        // total ticks elapsed
   rematchRequests: string[]; // session IDs that requested rematch
+  symbolSelectMode: boolean; // true if players must negotiate symbols
+  phase: "waiting" | "symbol_select" | "playing";
+  symbolSelections: { [sessionId: string]: string }; // sessionId -> "X" or "O"
 }
 
 function countPlayers(state: GameState): number {
@@ -97,6 +102,7 @@ const matchInit: nkruntime.MatchInitFunction = function (
   params: { [key: string]: string }
 ): { state: nkruntime.MatchState; tickRate: number; label: string } {
   const timedMode = params["timed"] === "true";
+  const symbolSelectMode = params["symbolSelect"] === "true";
   const requestedTimeout = Number(params["turnTimeoutSec"]);
   const turnTimeoutSec = isFinite(requestedTimeout)
     ? Math.max(5, Math.min(60, Math.floor(requestedTimeout)))
@@ -117,6 +123,9 @@ const matchInit: nkruntime.MatchInitFunction = function (
     turnStartTick: 0,
     tickCount: 0,
     rematchRequests: [],
+    symbolSelectMode,
+    phase: "waiting",
+    symbolSelections: {},
   };
 
   const label = JSON.stringify({
@@ -126,7 +135,7 @@ const matchInit: nkruntime.MatchInitFunction = function (
     playerCount: 0,
   });
 
-  logger.info("Match initialized. Timed mode: %s, turn timeout: %d", timedMode.toString(), turnTimeoutSec);
+  logger.info("Match initialized. Timed mode: %s, turn timeout: %d, symbol select: %s", timedMode.toString(), turnTimeoutSec, symbolSelectMode.toString());
   return { state, tickRate: TICK_RATE, label };
 };
 
@@ -201,13 +210,21 @@ const matchJoin: nkruntime.MatchJoinFunction = function (
   });
   dispatcher.matchLabelUpdate(label);
 
-  // If both players have joined, start the game
+  // If both players have joined, start the game (or symbol selection)
   if (currentPlayerCount === 2) {
-    s.startTime = Math.floor(Date.now() / 1000);
-    s.turnStartTick = tick;
+    if (s.symbolSelectMode) {
+      s.phase = "symbol_select";
+      s.symbolSelections = {};
+      logger.info("Both players joined. Entering symbol selection phase.");
+      broadcastSymbolState(dispatcher, s, null);
+    } else {
+      s.phase = "playing";
+      s.startTime = Math.floor(Date.now() / 1000);
+      s.turnStartTick = tick;
 
-    logger.info("Both players joined. Starting game.");
-    broadcastState(dispatcher, s);
+      logger.info("Both players joined. Starting game.");
+      broadcastState(dispatcher, s);
+    }
   }
 
   return { state: s };
@@ -284,9 +301,11 @@ const matchLoop: nkruntime.MatchLoopFunction = function (
     return { state: s };
   }
 
-  // Process player moves
+  // Process messages based on phase
   for (const message of messages) {
-    if (message.opCode === OpCode.PLAYER_MOVE) {
+    if (message.opCode === OpCode.SYMBOL_SELECT && s.phase === "symbol_select") {
+      processSymbolSelect(logger, dispatcher, tick, s, message);
+    } else if (message.opCode === OpCode.PLAYER_MOVE && s.phase === "playing") {
       processMove(ctx, nk, logger, dispatcher, tick, s, message);
     } else if (message.opCode === OpCode.REMATCH_REQUEST) {
       processRematchRequest(logger, dispatcher, tick, s, message);
@@ -353,6 +372,99 @@ const matchSignal: nkruntime.MatchSignalFunction = function (
 ): { state: nkruntime.MatchState; data?: string } | null {
   return { state, data: "signal_received" };
 };
+
+// ---- Symbol Selection Processing ----
+
+function processSymbolSelect(
+  logger: nkruntime.Logger,
+  dispatcher: nkruntime.MatchDispatcher,
+  tick: number,
+  state: GameState,
+  message: nkruntime.MatchMessage
+): void {
+  if (state.phase !== "symbol_select") return;
+
+  const senderSessionId = message.sender.sessionId;
+  const playerNum = getPlayerNumber(state, senderSessionId);
+  if (playerNum === 0) return;
+
+  let data: { symbol: string };
+  try {
+    data = JSON.parse(new TextDecoder().decode(message.data));
+  } catch {
+    logger.warn("Invalid symbol select data from player %d", playerNum);
+    return;
+  }
+
+  if (data.symbol !== "X" && data.symbol !== "O") {
+    logger.warn("Invalid symbol choice '%s' from player %d", data.symbol, playerNum);
+    return;
+  }
+
+  state.symbolSelections[senderSessionId] = data.symbol;
+  logger.info("Player %d selected symbol '%s'", playerNum, data.symbol);
+
+  // Check if both players have selected
+  const session1 = state.players[1];
+  const session2 = state.players[2];
+  const sel1 = state.symbolSelections[session1];
+  const sel2 = state.symbolSelections[session2];
+
+  if (sel1 && sel2) {
+    if (sel1 === sel2) {
+      // Conflict! Both chose the same symbol
+      logger.info("Symbol conflict: both chose '%s'. Resetting selections.", sel1);
+      const conflictSymbol = sel1;
+      state.symbolSelections = {};
+      broadcastSymbolState(dispatcher, state, conflictSymbol);
+    } else {
+      // Agreement! Assign players based on their selection
+      // Player who chose X becomes player 1, player who chose O becomes player 2
+      if (sel1 === "O" && sel2 === "X") {
+        // Swap player assignments
+        const tempSession = state.players[1];
+        state.players[1] = state.players[2];
+        state.players[2] = tempSession;
+        const tempUserId = state.playerUserIds[1];
+        state.playerUserIds[1] = state.playerUserIds[2];
+        state.playerUserIds[2] = tempUserId;
+      }
+      // If sel1 === "X" and sel2 === "O", no swap needed (already correct)
+
+      state.phase = "playing";
+      state.startTime = Math.floor(Date.now() / 1000);
+      state.turnStartTick = tick;
+      state.symbolSelections = {};
+
+      logger.info("Symbol selection agreed. Starting game.");
+      broadcastState(dispatcher, state);
+    }
+  } else {
+    // One player selected, waiting for the other
+    broadcastSymbolState(dispatcher, state, null);
+  }
+}
+
+function broadcastSymbolState(
+  dispatcher: nkruntime.MatchDispatcher,
+  state: GameState,
+  conflictSymbol: string | null
+): void {
+  const session1 = state.players[1];
+  const session2 = state.players[2];
+
+  const data = JSON.stringify({
+    phase: conflictSymbol ? "conflict" : "selecting",
+    conflictSymbol,
+    selections: {
+      [state.playerUserIds[1]]: state.symbolSelections[session1] || null,
+      [state.playerUserIds[2]]: state.symbolSelections[session2] || null,
+    },
+    players: state.playerUserIds,
+  });
+
+  dispatcher.broadcastMessage(OpCode.SYMBOL_STATE, data);
+}
 
 // ---- Move Processing ----
 

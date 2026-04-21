@@ -24,6 +24,7 @@ import {
   rpcSetUsername,
   rpcGetMatchHistory,
   rpcRecordAiGame,
+  rpcGetWinsLeaderboard,
 } from "./rpc";
 
 import { setupLeaderboard } from "./leaderboard";
@@ -60,7 +61,8 @@ function InitModule(
   initializer.registerRpc("set_username", rpcSetUsername);
   initializer.registerRpc("get_match_history", rpcGetMatchHistory);
   initializer.registerRpc("record_ai_game", rpcRecordAiGame);
-  logger.info("RPC functions registered: create_match, join_match, get_leaderboard, get_player_stats, set_username, get_match_history, record_ai_game");
+  initializer.registerRpc("get_wins_leaderboard", rpcGetWinsLeaderboard);
+  logger.info("RPC functions registered: create_match, join_match, get_leaderboard, get_player_stats, set_username, get_match_history, record_ai_game, get_wins_leaderboard");
 
   // Initialize leaderboard
   setupLeaderboard(nk, logger);

@@ -7,6 +7,7 @@ import LobbyScreen from "@/components/game/LobbyScreen";
 import MatchingScreen from "@/components/game/MatchingScreen";
 import GameScreen from "@/components/game/GameScreen";
 import OnlineGameScreen from "@/components/game/OnlineGameScreen";
+import OnlineSymbolSelect from "@/components/game/OnlineSymbolSelect";
 import ProfileScreen from "@/components/game/ProfileScreen";
 import AuthScreen from "@/components/game/AuthScreen";
 import VolumeControl from "@/components/game/VolumeControl";
@@ -16,7 +17,7 @@ import { audioManager } from "@/lib/audioManager";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOnlineMatch } from "@/hooks/useOnlineMatch";
 
-type Screen = 'mode' | 'difficulty' | 'symbol' | 'lobby' | 'matching' | 'game' | 'online-game' | 'profile';
+type Screen = 'mode' | 'difficulty' | 'symbol' | 'lobby' | 'matching' | 'symbol-negotiate' | 'game' | 'online-game' | 'profile';
 
 export default function Index() {
   const { isAuthenticated, isLoading: authLoading, username, isGuest, logout } = useAuth();
@@ -53,9 +54,17 @@ export default function Index() {
   // Transition to online game screen when match starts
   const prevStatus = onlineMatch.status;
   if (screen === 'matching' && prevStatus === 'playing') {
-    if (screen !== 'online-game') {
-      setTimeout(() => setScreen('online-game'), 0);
-    }
+    setTimeout(() => setScreen('online-game'), 0);
+  }
+
+  // Transition to symbol negotiation when matched with symbol select mode
+  if (screen === 'matching' && prevStatus === 'matched' && onlineMatch.symbolState) {
+    setTimeout(() => setScreen('symbol-negotiate'), 0);
+  }
+
+  // Transition from symbol negotiation to game when symbols are agreed
+  if (screen === 'symbol-negotiate' && prevStatus === 'playing') {
+    setTimeout(() => setScreen('online-game'), 0);
   }
 
   const handleOnlineBack = () => {
@@ -151,6 +160,14 @@ export default function Index() {
             matchId={onlineMatch.matchId}
             error={onlineMatch.error}
             onCancel={() => { onlineMatch.leaveMatch(); setScreen('lobby'); }}
+          />
+        )}
+        {screen === 'symbol-negotiate' && onlineMatch.symbolState && (
+          <OnlineSymbolSelect
+            key="symbol-negotiate"
+            symbolState={onlineMatch.symbolState}
+            onSelect={(symbol) => onlineMatch.sendSymbolSelect(symbol)}
+            onBack={() => { onlineMatch.leaveMatch(); setScreen('lobby'); }}
           />
         )}
         {screen === 'game' && (

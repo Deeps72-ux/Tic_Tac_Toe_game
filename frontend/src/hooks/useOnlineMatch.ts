@@ -10,6 +10,8 @@ const OpCode = {
   TIMER_UPDATE: 4,
   REMATCH_REQUEST: 5,
   REMATCH_ACCEPT: 6,
+  SYMBOL_SELECT: 7,
+  SYMBOL_STATE: 8,
 } as const;
 
 export interface OnlineGameState {
@@ -36,6 +38,13 @@ export interface TimerData {
   remainingSeconds: number;
 }
 
+export interface SymbolStateData {
+  phase: "selecting" | "conflict";
+  conflictSymbol: string | null;
+  selections: Record<string, string | null>;
+  players: Record<number, string>;
+}
+
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "matchmaking" | "matched" | "playing" | "error";
 
 export function useOnlineMatch() {
@@ -44,6 +53,7 @@ export function useOnlineMatch() {
   const [gameState, setGameState] = useState<OnlineGameState | null>(null);
   const [gameOverData, setGameOverData] = useState<GameOverData | null>(null);
   const [timerData, setTimerData] = useState<TimerData | null>(null);
+  const [symbolState, setSymbolState] = useState<SymbolStateData | null>(null);
   const [playerNumber, setPlayerNumber] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const [rematchCount, setRematchCount] = useState(0);
@@ -80,6 +90,7 @@ export function useOnlineMatch() {
             }
           }
           setGameOverData(null); // Clear previous game over if it's a rematch
+          setSymbolState(null); // Clear symbol selection phase
           setStatus("playing");
           break;
 
@@ -93,6 +104,11 @@ export function useOnlineMatch() {
 
         case OpCode.REMATCH_REQUEST:
           setRematchCount(data.count || 0);
+          break;
+
+        case OpCode.SYMBOL_STATE:
+          setSymbolState(data as SymbolStateData);
+          setStatus("matched");
           break;
       }
     };
@@ -236,6 +252,15 @@ export function useOnlineMatch() {
     socket.sendMatchState(mid, OpCode.PLAYER_MOVE, JSON.stringify({ position }));
   }, []);
 
+  /** Send symbol selection */
+  const sendSymbolSelect = useCallback((symbol: "X" | "O") => {
+    const socket = socketRef.current;
+    const mid = matchIdRef.current;
+    if (!socket || !mid) return;
+
+    socket.sendMatchState(mid, OpCode.SYMBOL_SELECT, JSON.stringify({ symbol }));
+  }, []);
+
   /** Request rematch */
   const requestRematch = useCallback(() => {
     const socket = socketRef.current;
@@ -256,6 +281,7 @@ export function useOnlineMatch() {
     setGameState(null);
     setGameOverData(null);
     setTimerData(null);
+    setSymbolState(null);
     setPlayerNumber(0);
     setRematchCount(0);
     setStatus("connected");
@@ -291,6 +317,7 @@ export function useOnlineMatch() {
     gameState,
     gameOverData,
     timerData,
+    symbolState,
     playerNumber,
     error,
     rematchCount,
@@ -299,6 +326,7 @@ export function useOnlineMatch() {
     joinMatch,
     createMatch,
     sendMove,
+    sendSymbolSelect,
     requestRematch,
     leaveMatch,
     disconnect,

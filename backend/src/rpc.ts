@@ -30,6 +30,7 @@ const rpcCreateMatch: nkruntime.RpcFunction = function (
   const matchId = nk.matchCreate("tic_tac_toe", {
     timed: timedMode ? "true" : "false",
     turnTimeoutSec: turnTimeoutSec.toString(),
+    symbolSelect: "true",
   });
 
   logger.info("Match created via RPC by %s: %s", ctx.userId, matchId);
@@ -491,6 +492,81 @@ const rpcRecordAiGame: nkruntime.RpcFunction = function (
   return JSON.stringify({ success: true });
 };
 
+/**
+ * RPC: get_wins_leaderboard
+ * Returns a global leaderboard ranked by online wins (excluding AI games).
+ * Also returns the current user's rank.
+ * Payload (optional): { "limit": 20 }
+ */
+const rpcGetWinsLeaderboard: nkruntime.RpcFunction = function (
+  ctx: nkruntime.Context,
+  logger: nkruntime.Logger,
+  nk: nkruntime.Nakama,
+  payload: string
+): string {
+  if (!ctx.userId) {
+    throw Error("Authentication required");
+  }
+
+  let limit = 20;
+  if (payload) {
+    try {
+      const data = JSON.parse(payload);
+      if (typeof data.limit === "number" && data.limit > 0 && data.limit <= 100) {
+        limit = data.limit;
+      }
+    } catch {
+      throw Error("Invalid JSON payload");
+    }
+  }
+
+  // Get top players ranked by online wins
+  const rows = nk.sqlQuery(
+    `SELECT gs.user_id, up.username, gs.wins, gs.losses, gs.draws
+     FROM game_stats gs
+     JOIN users_profile up ON gs.user_id = up.user_id
+     WHERE gs.wins > 0
+     ORDER BY gs.wins DESC, gs.losses ASC
+     LIMIT $1`,
+    [limit]
+  );
+
+  const records = rows.map((row, index) => ({
+    rank: index + 1,
+    userId: row.user_id as string,
+    username: row.username as string,
+    wins: row.wins as number,
+    losses: row.losses as number,
+    draws: row.draws as number,
+  }));
+
+  // Get current user's rank
+  let myRank: number | null = null;
+  let myWins = 0;
+  const myStatsRows = nk.sqlQuery(
+    "SELECT wins FROM game_stats WHERE user_id = $1",
+    [ctx.userId]
+  );
+  if (myStatsRows.length > 0) {
+    myWins = myStatsRows[0].wins as number;
+    if (myWins > 0) {
+      const rankRows = nk.sqlQuery(
+        `SELECT COUNT(*) + 1 as rank FROM game_stats WHERE wins > $1`,
+        [myWins]
+      );
+      myRank = rankRows.length > 0 ? (rankRows[0].rank as number) : null;
+    }
+  }
+
+  logger.info("Wins leaderboard fetched: %d records, user rank: %s", records.length, myRank ? myRank.toString() : "unranked");
+
+  return JSON.stringify({
+    records,
+    myRank,
+    myWins,
+  });
+};
+
 export {
   rpcCreateMatch,
   rpcJoinMatch,
@@ -499,4 +575,5 @@ export {
   rpcSetUsername,
   rpcGetMatchHistory,
   rpcRecordAiGame,
+  rpcGetWinsLeaderboard,
 };

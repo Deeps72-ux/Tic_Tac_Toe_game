@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Bot, Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import Leaderboard from "./Leaderboard";
 
 interface ModeSelectProps {
   onSelectAI: () => void;
@@ -12,7 +13,7 @@ export default function ModeSelect({ onSelectAI, onSelectOnline }: ModeSelectPro
 
   return (
     <motion.div
-      className="flex flex-col items-center justify-center min-h-screen px-4 grid-bg"
+      className="flex flex-col items-center justify-center min-h-screen px-4 py-8 grid-bg"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -64,6 +65,8 @@ export default function ModeSelect({ onSelectAI, onSelectOnline }: ModeSelectPro
           delay={0.5}
         />
       </div>
+
+      <Leaderboard />
     </motion.div>
   );
 }
