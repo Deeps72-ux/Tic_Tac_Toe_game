@@ -12,7 +12,6 @@ const OpCode = {
   REMATCH_ACCEPT: 6,
   SYMBOL_SELECT: 7,
   SYMBOL_STATE: 8,
-  SYMBOL_CONFIRM: 9,
 } as const;
 
 // Win conditions: rows, columns, diagonals
@@ -85,8 +84,6 @@ interface GameState {
   symbolSelectMode: boolean; // true if players must negotiate symbols
   phase: "waiting" | "symbol_select" | "playing";
   symbolSelections: Array<{ sessionId: string; symbol: string }>; // ordered by selection time
-  symbolResolved: { [userId: string]: string } | null; // resolved assignments: userId -> "X"|"O"
-  symbolConfirmed: string[]; // session IDs that confirmed
 }
 
 function countPlayers(state: GameState): number {
@@ -129,8 +126,6 @@ const matchInit: nkruntime.MatchInitFunction = function (
     symbolSelectMode,
     phase: "waiting",
     symbolSelections: [],
-    symbolResolved: null,
-    symbolConfirmed: [],
   };
 
   const label = JSON.stringify({
@@ -220,8 +215,6 @@ const matchJoin: nkruntime.MatchJoinFunction = function (
     if (s.symbolSelectMode) {
       s.phase = "symbol_select";
       s.symbolSelections = [];
-      s.symbolResolved = null;
-      s.symbolConfirmed = [];
       logger.info("Both players joined. Entering symbol selection phase.");
       broadcastSymbolState(dispatcher, s);
     } else {
@@ -312,8 +305,6 @@ const matchLoop: nkruntime.MatchLoopFunction = function (
   for (const message of messages) {
     if (message.opCode === OpCode.SYMBOL_SELECT && s.phase === "symbol_select") {
       processSymbolSelect(logger, dispatcher, tick, s, message);
-    } else if (message.opCode === OpCode.SYMBOL_CONFIRM && s.phase === "symbol_select") {
-      processSymbolConfirm(logger, dispatcher, tick, s, message);
     } else if (message.opCode === OpCode.PLAYER_MOVE && s.phase === "playing") {
       processMove(ctx, nk, logger, dispatcher, tick, s, message);
     } else if (message.opCode === OpCode.REMATCH_REQUEST) {
@@ -387,11 +378,11 @@ const matchSignal: nkruntime.MatchSignalFunction = function (
 function processSymbolSelect(
   logger: nkruntime.Logger,
   dispatcher: nkruntime.MatchDispatcher,
-  _tick: number,
+  tick: number,
   state: GameState,
   message: nkruntime.MatchMessage
 ): void {
-  if (state.phase !== "symbol_select" || state.symbolResolved) return;
+  if (state.phase !== "symbol_select") return;
 
   const senderSessionId = message.sender.sessionId;
   const playerNum = getPlayerNumber(state, senderSessionId);
@@ -423,69 +414,38 @@ function processSymbolSelect(
     const first = state.symbolSelections[0];
     const second = state.symbolSelections[1];
 
-    const resolved: { [userId: string]: string } = {};
-    if (first.symbol !== second.symbol) {
-      // Different picks — each gets what they chose
-      resolved[state.playerUserIds[getPlayerNumber(state, first.sessionId)]] = first.symbol;
-      resolved[state.playerUserIds[getPlayerNumber(state, second.sessionId)]] = second.symbol;
-    } else {
-      // Same pick — first selector gets it, second gets the other
-      const otherSymbol = first.symbol === "X" ? "O" : "X";
-      resolved[state.playerUserIds[getPlayerNumber(state, first.sessionId)]] = first.symbol;
-      resolved[state.playerUserIds[getPlayerNumber(state, second.sessionId)]] = otherSymbol;
-      logger.info("Both picked '%s'. First picker keeps it, second gets '%s'.", first.symbol, otherSymbol);
+    // Resolve: first picker gets priority on conflicts
+    let firstSymbol = first.symbol;
+    let secondSymbol = second.symbol;
+    if (firstSymbol === secondSymbol) {
+      secondSymbol = firstSymbol === "X" ? "O" : "X";
+      logger.info("Both picked '%s'. First picker keeps it, second gets '%s'.", firstSymbol, secondSymbol);
     }
 
-    state.symbolResolved = resolved;
-    state.symbolConfirmed = [];
-    broadcastSymbolState(dispatcher, state);
-  } else {
-    // One player selected, waiting for the other
-    broadcastSymbolState(dispatcher, state);
-  }
-}
+    // Assign: X = player 1, O = player 2
+    const firstPlayerNum = getPlayerNumber(state, first.sessionId);
+    const secondPlayerNum = getPlayerNumber(state, second.sessionId);
 
-function processSymbolConfirm(
-  logger: nkruntime.Logger,
-  dispatcher: nkruntime.MatchDispatcher,
-  tick: number,
-  state: GameState,
-  message: nkruntime.MatchMessage
-): void {
-  if (state.phase !== "symbol_select" || !state.symbolResolved) return;
-
-  const senderSessionId = message.sender.sessionId;
-  if (state.symbolConfirmed.indexOf(senderSessionId) >= 0) return;
-
-  state.symbolConfirmed.push(senderSessionId);
-  logger.info("Session %s confirmed symbol (%d/2)", senderSessionId, state.symbolConfirmed.length);
-
-  if (state.symbolConfirmed.length === 2) {
-    // Both confirmed — assign player numbers based on resolved symbols
-    // Player with X is player 1, player with O is player 2
-    const userId1 = state.playerUserIds[1];
-    const userId2 = state.playerUserIds[2];
-    if (state.symbolResolved[userId1] === "O" && state.symbolResolved[userId2] === "X") {
-      // Swap
-      const tempSession = state.players[1];
-      state.players[1] = state.players[2];
-      state.players[2] = tempSession;
-      const tempUserId = state.playerUserIds[1];
-      state.playerUserIds[1] = state.playerUserIds[2];
-      state.playerUserIds[2] = tempUserId;
+    if (firstSymbol === "O" && secondSymbol === "X") {
+      // The second selector chose X — swap player assignments
+      const tempSession = state.players[firstPlayerNum];
+      state.players[firstPlayerNum] = state.players[secondPlayerNum];
+      state.players[secondPlayerNum] = tempSession;
+      const tempUserId = state.playerUserIds[firstPlayerNum];
+      state.playerUserIds[firstPlayerNum] = state.playerUserIds[secondPlayerNum];
+      state.playerUserIds[secondPlayerNum] = tempUserId;
     }
 
+    // Start the game immediately
     state.phase = "playing";
     state.startTime = Math.floor(Date.now() / 1000);
     state.turnStartTick = tick;
     state.symbolSelections = [];
-    state.symbolResolved = null;
-    state.symbolConfirmed = [];
 
-    logger.info("Both players confirmed. Starting game.");
+    logger.info("Symbols resolved. Starting game.");
     broadcastState(dispatcher, state);
   } else {
-    // Broadcast updated confirm count
+    // One player selected, waiting for the other
     broadcastSymbolState(dispatcher, state);
   }
 }
@@ -506,13 +466,9 @@ function broadcastSymbolState(
     }
   }
 
-  const phase = state.symbolResolved ? "resolved" : "selecting";
-
   const data = JSON.stringify({
-    phase,
+    phase: "selecting",
     selections,
-    resolved: state.symbolResolved,
-    confirmedCount: state.symbolConfirmed.length,
     players: state.playerUserIds,
   });
 

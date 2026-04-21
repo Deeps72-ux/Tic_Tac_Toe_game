@@ -12,7 +12,6 @@ const OpCode = {
   REMATCH_ACCEPT: 6,
   SYMBOL_SELECT: 7,
   SYMBOL_STATE: 8,
-  SYMBOL_CONFIRM: 9,
 } as const;
 
 export interface OnlineGameState {
@@ -40,10 +39,8 @@ export interface TimerData {
 }
 
 export interface SymbolStateData {
-  phase: "selecting" | "resolved";
+  phase: "selecting";
   selections: Record<string, string | null>;
-  resolved: Record<string, string> | null;
-  confirmedCount: number;
   players: Record<number, string>;
 }
 
@@ -151,6 +148,7 @@ export function useOnlineMatch() {
     setGameState(null);
     setGameOverData(null);
     setTimerData(null);
+    setSymbolState(null);
     setRematchCount(0);
 
     try {
@@ -200,6 +198,7 @@ export function useOnlineMatch() {
     setGameState(null);
     setGameOverData(null);
     setTimerData(null);
+    setSymbolState(null);
     setRematchCount(0);
 
     try {
@@ -228,6 +227,7 @@ export function useOnlineMatch() {
 
     setStatus("matchmaking");
     setError(null);
+    setSymbolState(null);
 
     try {
       const result = await nakamaClient.rpc<{ matchId: string }>(
@@ -261,15 +261,6 @@ export function useOnlineMatch() {
     if (!socket || !mid) return;
 
     socket.sendMatchState(mid, OpCode.SYMBOL_SELECT, JSON.stringify({ symbol }));
-  }, []);
-
-  /** Send symbol confirmation (Continue button) */
-  const sendSymbolConfirm = useCallback(() => {
-    const socket = socketRef.current;
-    const mid = matchIdRef.current;
-    if (!socket || !mid) return;
-
-    socket.sendMatchState(mid, OpCode.SYMBOL_CONFIRM, "{}");
   }, []);
 
   /** Request rematch */
@@ -338,7 +329,6 @@ export function useOnlineMatch() {
     createMatch,
     sendMove,
     sendSymbolSelect,
-    sendSymbolConfirm,
     requestRematch,
     leaveMatch,
     disconnect,
