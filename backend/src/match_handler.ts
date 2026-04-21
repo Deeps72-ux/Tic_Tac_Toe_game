@@ -65,6 +65,27 @@ function computeScore(winStreak: number, durationSeconds: number): number {
   return score;
 }
 
+/** Safely decode match message data to string. Handles string, Uint8Array, and ArrayBuffer. */
+function decodeMessageData(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (data instanceof Uint8Array) {
+    let str = "";
+    for (let i = 0; i < data.length; i++) {
+      str += String.fromCharCode(data[i]);
+    }
+    return str;
+  }
+  if (data instanceof ArrayBuffer) {
+    const bytes = new Uint8Array(data);
+    let str = "";
+    for (let i = 0; i < bytes.length; i++) {
+      str += String.fromCharCode(bytes[i]);
+    }
+    return str;
+  }
+  return String(data);
+}
+
 // ---- Game State Interface ----
 interface GameState {
   board: number[];          // 0 = empty, 1 = player 1 (X), 2 = player 2 (O)
@@ -390,9 +411,10 @@ function processSymbolSelect(
 
   let data: { symbol: string };
   try {
-    data = JSON.parse(new TextDecoder().decode(message.data));
-  } catch {
-    logger.warn("Invalid symbol select data from player %d", playerNum);
+    const raw = decodeMessageData(message.data);
+    data = JSON.parse(raw);
+  } catch (e) {
+    logger.warn("Invalid symbol select data from player %d: %s", playerNum, String(e));
     return;
   }
 
@@ -505,7 +527,8 @@ function processMove(
   // Parse move data
   let moveData: { position: number };
   try {
-    moveData = JSON.parse(new TextDecoder().decode(message.data));
+    const raw = decodeMessageData(message.data);
+    moveData = JSON.parse(raw);
   } catch {
     logger.warn("Invalid move data from player %d", playerNum);
     sendError(dispatcher, message.sender, "Invalid move data");
