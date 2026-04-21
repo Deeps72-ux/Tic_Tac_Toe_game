@@ -12,6 +12,7 @@ const OpCode = {
   REMATCH_ACCEPT: 6,
   SYMBOL_SELECT: 7,
   SYMBOL_STATE: 8,
+  SYMBOL_CONFIRM: 9,
 } as const;
 
 export interface OnlineGameState {
@@ -39,9 +40,10 @@ export interface TimerData {
 }
 
 export interface SymbolStateData {
-  phase: "selecting" | "conflict";
-  conflictSymbol: string | null;
+  phase: "selecting" | "resolved";
   selections: Record<string, string | null>;
+  resolved: Record<string, string> | null;
+  confirmedCount: number;
   players: Record<number, string>;
 }
 
@@ -261,6 +263,15 @@ export function useOnlineMatch() {
     socket.sendMatchState(mid, OpCode.SYMBOL_SELECT, JSON.stringify({ symbol }));
   }, []);
 
+  /** Send symbol confirmation (Continue button) */
+  const sendSymbolConfirm = useCallback(() => {
+    const socket = socketRef.current;
+    const mid = matchIdRef.current;
+    if (!socket || !mid) return;
+
+    socket.sendMatchState(mid, OpCode.SYMBOL_CONFIRM, "{}");
+  }, []);
+
   /** Request rematch */
   const requestRematch = useCallback(() => {
     const socket = socketRef.current;
@@ -327,6 +338,7 @@ export function useOnlineMatch() {
     createMatch,
     sendMove,
     sendSymbolSelect,
+    sendSymbolConfirm,
     requestRematch,
     leaveMatch,
     disconnect,

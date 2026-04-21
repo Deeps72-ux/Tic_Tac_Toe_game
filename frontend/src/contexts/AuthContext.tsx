@@ -79,7 +79,17 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
         if (raw) {
           const { token, refresh_token } = JSON.parse(raw);
           if (nakamaClient.restoreSession(token, refresh_token)) {
-            setSession(nakamaClient.session);
+            // Wait for any pending token refresh to complete
+            const refreshed = await nakamaClient.ensureSession();
+            if (refreshed && nakamaClient.session) {
+              // Save the potentially refreshed session
+              saveSession(nakamaClient.session);
+              setSession(nakamaClient.session);
+            } else {
+              clearSession();
+              setIsLoading(false);
+              return;
+            }
             const restoredGuest = localStorage.getItem(AUTH_MODE_KEY) === "guest";
             setIsGuest(restoredGuest);
             if (restoredGuest) {

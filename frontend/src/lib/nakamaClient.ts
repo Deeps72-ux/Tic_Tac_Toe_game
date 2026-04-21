@@ -50,13 +50,27 @@ class NakamaClient {
     return this._session;
   }
 
-  /** Restore session from saved token */
+  /** Restore session from saved token, refreshing if the access token is expired */
   restoreSession(token: string, refreshToken: string): boolean {
     try {
       const session = Session.restore(token, refreshToken);
       const now = Math.floor(Date.now() / 1000);
       if (session.isexpired(now)) {
-        return false;
+        // Access token expired — try async refresh via refresh token
+        this._pendingRefresh = this.client
+          .sessionRefresh(session)
+          .then((refreshed) => {
+            this._session = refreshed;
+            this._pendingRefresh = null;
+            return true;
+          })
+          .catch(() => {
+            this._pendingRefresh = null;
+            return false;
+          });
+        // Temporarily set the old session so callers see isAuthenticated()
+        this._session = session;
+        return true;
       }
       this._session = session;
       return true;
@@ -64,6 +78,16 @@ class NakamaClient {
       return false;
     }
   }
+
+  /** Wait for any pending session refresh to complete */
+  async ensureSession(): Promise<boolean> {
+    if (this._pendingRefresh !== null) {
+      return this._pendingRefresh;
+    }
+    return this.isAuthenticated();
+  }
+
+  private _pendingRefresh: Promise<boolean> | null = null;
 
   /** Connect WebSocket for real-time communication */
   async connectSocket(): Promise<Socket> {

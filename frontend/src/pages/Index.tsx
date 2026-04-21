@@ -167,6 +167,7 @@ export default function Index() {
             key="symbol-negotiate"
             symbolState={onlineMatch.symbolState}
             onSelect={(symbol) => onlineMatch.sendSymbolSelect(symbol)}
+            onConfirm={() => onlineMatch.sendSymbolConfirm()}
             onBack={() => { onlineMatch.leaveMatch(); setScreen('lobby'); }}
           />
         )}
